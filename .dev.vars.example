@@ -1,0 +1,24 @@
+# Local Wrangler must override the production default from wrangler.toml.
+APP_ENV=development
+# Generate these values before local development. Never commit real secrets.
+ADMIN_PASSWORD_HASH=pbkdf2-sha256$600000$BASE64_SALT$BASE64_DIGEST
+CREDENTIAL_MASTER_KEY=BASE64_32_BYTE_KEY
+SESSION_HMAC_KEY=BASE64_32_BYTE_KEY
+# Optional Google OIDC login. Configure all four values or omit all four.
+GOOGLE_CLIENT_ID=GOOGLE_OAUTH_WEB_CLIENT_ID
+GOOGLE_CLIENT_SECRET=GOOGLE_OAUTH_WEB_CLIENT_SECRET
+GOOGLE_REDIRECT_URI=http://localhost:8787/api/auth/google/callback
+GOOGLE_ALLOWED_EMAILS=admin@example.com
+# Required when using the Vite frontend dev server on port 5173.
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+# Optional comma-separated allowlist. Port 25 is always prohibited.
+ALLOWED_SSH_PORTS=22
+# Per-user concurrent SSH sessions (1-20). Enforced atomically by a Durable Object.
+MAX_SESSIONS_PER_USER=5
+# SSH transport for this Worker deployment: direct or tailnet_connector.
+SSH_TRANSPORT=direct
+# Required only for tailnet_connector. Keep all three credentials secret.
+# TAILNET_CONNECTOR_URL=https://ssh-connector.example.com/v1/connect
+# TAILNET_CONNECTOR_HMAC_KEY=BASE64URL_32_BYTE_KEY
+# TAILNET_CONNECTOR_ACCESS_CLIENT_ID=CLOUDFLARE_ACCESS_SERVICE_TOKEN_ID
+# TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET=CLOUDFLARE_ACCESS_SERVICE_TOKEN_SECRET

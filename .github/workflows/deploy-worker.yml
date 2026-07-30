@@ -1,0 +1,99 @@
+name: Deploy Web and Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-worker.yml"
+      - "apps/web/**"
+      - "apps/worker/**"
+      - "packages/**"
+      - "scripts/render-wrangler-config.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - "wrangler.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-ssh-workbench-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      DEPLOY_WORKER_NAME: ${{ vars.DEPLOY_WORKER_NAME }}
+      DEPLOY_APP_ORIGIN: ${{ vars.DEPLOY_APP_ORIGIN }}
+      DEPLOY_GOOGLE_CLIENT_ID: ${{ vars.DEPLOY_GOOGLE_CLIENT_ID }}
+      DEPLOY_GOOGLE_ALLOWED_EMAILS: ${{ vars.DEPLOY_GOOGLE_ALLOWED_EMAILS }}
+      DEPLOY_D1_DATABASE_ID: ${{ vars.DEPLOY_D1_DATABASE_ID }}
+      DEPLOY_D1_DATABASE_NAME: ${{ vars.DEPLOY_D1_DATABASE_NAME }}
+      DEPLOY_R2_BUCKET_NAME: ${{ vars.DEPLOY_R2_BUCKET_NAME }}
+      DEPLOY_TAILNET_CONNECTOR_URL: ${{ vars.DEPLOY_TAILNET_CONNECTOR_URL }}
+      DEPLOY_ALLOWED_SSH_PORTS: ${{ vars.DEPLOY_ALLOWED_SSH_PORTS }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build Web and Connector
+        run: npm run build
+
+      - name: Generate production Wrangler configuration
+        run: npm run config:production
+
+      - name: Validate production Worker bundle
+        run: npx wrangler deploy --dry-run --config .wrangler.production.toml --outdir .wrangler/ci-build
+
+      - name: Apply remote D1 migrations
+        run: npx wrangler d1 migrations apply "$DEPLOY_D1_DATABASE_NAME" --remote --config .wrangler.production.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Web assets and Worker
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config .wrangler.production.toml
+          secrets: |
+            ADMIN_PASSWORD_HASH
+            CREDENTIAL_MASTER_KEY
+            SESSION_HMAC_KEY
+            GOOGLE_CLIENT_SECRET
+            TAILNET_CONNECTOR_HMAC_KEY
+            TAILNET_CONNECTOR_ACCESS_CLIENT_ID
+            TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET
+        env:
+          ADMIN_PASSWORD_HASH: ${{ secrets.ADMIN_PASSWORD_HASH }}
+          CREDENTIAL_MASTER_KEY: ${{ secrets.CREDENTIAL_MASTER_KEY }}
+          SESSION_HMAC_KEY: ${{ secrets.SESSION_HMAC_KEY }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          TAILNET_CONNECTOR_HMAC_KEY: ${{ secrets.TAILNET_CONNECTOR_HMAC_KEY }}
+          TAILNET_CONNECTOR_ACCESS_CLIENT_ID: ${{ secrets.TAILNET_CONNECTOR_ACCESS_CLIENT_ID }}
+          TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET: ${{ secrets.TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET }}

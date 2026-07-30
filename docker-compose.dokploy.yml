@@ -1,0 +1,78 @@
+name: edge-ssh-tailnet-connector
+
+services:
+  connector:
+    build:
+      context: .
+      dockerfile: apps/tailnet-connector/Dockerfile
+    image: edge-ssh-tailnet-connector:${CONNECTOR_IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    environment:
+      CONNECTOR_HMAC_KEY: ${CONNECTOR_HMAC_KEY:?Set CONNECTOR_HMAC_KEY in Dokploy}
+      TAILNET_ALLOWED_SUFFIX: ${TAILNET_ALLOWED_SUFFIX:?Set TAILNET_ALLOWED_SUFFIX in Dokploy}
+      TAILNET_ALLOWED_PORTS: ${TAILNET_ALLOWED_PORTS:-22}
+      LISTEN_HOST: 127.0.0.1
+      PORT: "8789"
+      CONNECT_TIMEOUT_MS: ${CONNECT_TIMEOUT_MS:-10000}
+      AUTH_WINDOW_SECONDS: ${AUTH_WINDOW_SECONDS:-30}
+      MAX_CONNECTIONS: ${MAX_CONNECTIONS:-20}
+      IDLE_TIMEOUT_MS: ${IDLE_TIMEOUT_MS:-1800000}
+      MAX_SESSION_MS: ${MAX_SESSION_MS:-28800000}
+      MAX_BUFFERED_BYTES: ${MAX_BUFFERED_BYTES:-1048576}
+    # MagicDNS remains authoritative inside the Docker network namespace.
+    dns:
+      - 100.100.100.100
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8789/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - dokploy-network
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:?Set an explicit CLOUDFLARED_VERSION in Dokploy}
+    restart: unless-stopped
+    # Sharing the namespace lets cloudflared reach the loopback-only Connector
+    # without publishing port 8789 to the host or the Dokploy network.
+    network_mode: service:connector
+    depends_on:
+      connector:
+        condition: service_healthy
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN:?Set CLOUDFLARED_TUNNEL_TOKEN in Dokploy}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  dokploy-network:
+    external: true

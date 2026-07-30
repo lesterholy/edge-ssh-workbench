@@ -1,0 +1,63 @@
+name = "edge-ssh-workbench"
+main = "apps/worker/src/index.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[define]
+__dirname = '""'
+__filename = '""'
+
+[alias]
+"./crypto/build/Release/sshcrypto.node" = "./apps/worker/shims/sshcrypto-unavailable.cjs"
+
+[assets]
+directory = "./apps/web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+[vars]
+APP_ENV = "production"
+ALLOWED_ORIGINS = "https://app.example.com"
+CONNECT_TIMEOUT_MS = "10000"
+MAX_SESSIONS_PER_USER = "5"
+ALLOWED_SSH_PORTS = "22,7022"
+SSH_TRANSPORT = "tailnet_connector"
+# Tailnet Connector URL is non-secret. The HMAC key and optional Cloudflare
+# Access Service Token belong in Wrangler secrets; see docs/tailnet-connector.md.
+TAILNET_CONNECTOR_URL = "https://ssh-connector.example.com/v1/connect"
+# Optional Google OIDC login. GOOGLE_CLIENT_SECRET must be a Wrangler secret.
+GOOGLE_CLIENT_ID = "example.apps.googleusercontent.com"
+GOOGLE_REDIRECT_URI = "https://app.example.com/api/auth/google/callback"
+GOOGLE_ALLOWED_EMAILS = "admin@example.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "edge-ssh-workbench-example"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "apps/worker/migrations"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "edge-ssh-workbench-files-example"
+
+[[durable_objects.bindings]]
+name = "SSH_SESSIONS"
+class_name = "SSHSessionDO"
+
+[[durable_objects.bindings]]
+name = "SSH_SESSION_REGISTRY"
+class_name = "SSHSessionRegistryDO"
+
+[[durable_objects.bindings]]
+name = "AUTH_LIMITER"
+class_name = "AuthRateLimiterDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SSHSessionDO", "AuthRateLimiterDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SSHSessionRegistryDO"]
