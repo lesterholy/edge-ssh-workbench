@@ -1,7 +1,83 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../env";
-import { SSHSessionDO } from "./ssh-session";
+import { D1SSHProfileRepository, SSHSessionDO } from "./ssh-session";
+
+const connectorHmacKey = Buffer.alloc(32, 7).toString("base64url");
+
+function tailscaleProfileDatabase(port = 22): D1Database {
+  const profile = {
+    id: "33333333-3333-4333-8333-333333333333",
+    owner_id: "11111111-1111-4111-8111-111111111111",
+    name: "Tailnet VPS",
+    host: "vps-01.example-tailnet.ts.net",
+    port,
+    username: "deploy",
+    auth_kind: "password",
+    tailscale_ssh: 1,
+    credential_persistence: "saved",
+    collect_history: 1,
+    password_ciphertext: null,
+    password_iv: null,
+    password_version: null,
+    private_key_ciphertext: null,
+    private_key_iv: null,
+    private_key_version: null,
+    passphrase_ciphertext: null,
+    passphrase_iv: null,
+    passphrase_version: null,
+  };
+  return {
+    prepare: (sql: string) => ({
+      bind: () => ({
+        first: async () => sql.includes("FROM profiles") ? profile : { collect_commands: 1 },
+      }),
+    }),
+  } as unknown as D1Database;
+}
+
+describe("D1 SSH profile resolution", () => {
+  it("resolves Tailscale SSH without credential material", async () => {
+    const repository = new D1SSHProfileRepository({
+      DB: tailscaleProfileDatabase(),
+      SSH_TRANSPORT: "tailnet_connector",
+      TAILNET_CONNECTOR_URL: "https://connector.example.test/v1/connect",
+      TAILNET_CONNECTOR_HMAC_KEY: connectorHmacKey,
+    } as Env);
+
+    await expect(repository.resolve(
+      "11111111-1111-4111-8111-111111111111",
+      "33333333-3333-4333-8333-333333333333",
+    )).resolves.toMatchObject({ authentication: { kind: "tailscale-ssh" }, port: 22 });
+    await expect(repository.resolve(
+      "11111111-1111-4111-8111-111111111111",
+      "33333333-3333-4333-8333-333333333333",
+      { method: "password", password: "must-not-be-used" },
+    )).rejects.toThrow("do not accept SSH credentials");
+  });
+
+  it("rejects Tailscale SSH outside its transport and port boundary", async () => {
+    const direct = new D1SSHProfileRepository({
+      DB: tailscaleProfileDatabase(),
+      SSH_TRANSPORT: "direct",
+    } as Env);
+    await expect(direct.resolve(
+      "11111111-1111-4111-8111-111111111111",
+      "33333333-3333-4333-8333-333333333333",
+    )).rejects.toThrow("tailnet_connector");
+
+    const wrongPort = new D1SSHProfileRepository({
+      DB: tailscaleProfileDatabase(7022),
+      SSH_TRANSPORT: "tailnet_connector",
+      TAILNET_CONNECTOR_URL: "https://connector.example.test/v1/connect",
+      TAILNET_CONNECTOR_HMAC_KEY: connectorHmacKey,
+    } as Env);
+    await expect(wrongPort.resolve(
+      "11111111-1111-4111-8111-111111111111",
+      "33333333-3333-4333-8333-333333333333",
+    )).rejects.toThrow("port 22");
+  });
+});
 
 describe("SSHSessionDO restart recovery", () => {
   it("finalizes an attached live session and releases its owner lease", async () => {

@@ -5,6 +5,7 @@ import {
   Client,
   type Algorithms,
   type ClientChannel,
+  type ConnectConfig,
   type FileEntryWithStats,
   type HostVerifier,
   type SFTPWrapper
@@ -17,6 +18,7 @@ import type {
   RemoteFile,
   SFTPDownloadOptions,
   SSHConnectionProfile,
+  SSHAuthentication,
   SSHEngine,
   SSHEngineDependencies,
   SSHEngineEvent,
@@ -29,6 +31,14 @@ const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_EXEC_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MAX_UPLOAD_CHUNK_BYTES = 256 * 1024;
+
+type SSHClientAuthenticationOptions = Pick<ConnectConfig, "authHandler" | "password" | "privateKey" | "passphrase">;
+
+export function sshClientAuthenticationOptions(authentication: SSHAuthentication): SSHClientAuthenticationOptions {
+  if (authentication.kind === "tailscale-ssh") return { authHandler: ["none"] };
+  if (authentication.kind === "password") return { password: authentication.password };
+  return { privateKey: authentication.privateKey, passphrase: authentication.passphrase };
+}
 
 const MODERN_ALGORITHMS = {
   kex: [
@@ -371,9 +381,7 @@ export class SSH2Engine implements SSHEngine {
         port: profile.port,
         sock: transport as unknown as import("node:stream").Readable,
         username: profile.username,
-        password: profile.authentication.kind === "password" ? profile.authentication.password : undefined,
-        privateKey: profile.authentication.kind === "private-key" ? profile.authentication.privateKey : undefined,
-        passphrase: profile.authentication.kind === "private-key" ? profile.authentication.passphrase : undefined,
+        ...sshClientAuthenticationOptions(profile.authentication),
         readyTimeout: clamp(this.dependencies.connectTimeoutMs ?? 20_000, 2_000, 30_000),
         keepaliveInterval: 15_000,
         keepaliveCountMax: 3,
@@ -561,6 +569,7 @@ function validateProfile(profile: SSHConnectionProfile): void {
   if (!profile.ownerId || !profile.profileId) throw new Error("SSH profile identity is missing");
   if (!profile.host || profile.host.length > 253 || /[\0-\x20/\\?#@%]/.test(profile.host)) throw new Error("Invalid SSH host");
   if (!Number.isInteger(profile.port) || profile.port < 1 || profile.port > 65_535) throw new Error("Invalid SSH port");
+  if (profile.authentication.kind === "tailscale-ssh" && profile.port !== 22) throw new Error("Tailscale SSH profiles must use port 22");
   if (!profile.username || profile.username.length > 128 || /[\0\r\n]/.test(profile.username)) throw new Error("Invalid SSH username");
   if (profile.authentication.kind === "password" && profile.authentication.password.length > 4_096) throw new Error("SSH password is too large");
   if (profile.authentication.kind === "private-key" && profile.authentication.privateKey.length > 256 * 1024) throw new Error("SSH private key is too large");

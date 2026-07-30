@@ -50,6 +50,9 @@ export async function createSshTicket(
     body: JSON.stringify({ ownerId: auth.ownerId, sessionId, request: input }),
   });
   if (!response.ok) {
+    if (response.status === 400) {
+      throw new HttpError(400, "SSH_TARGET_REJECTED", "Tailscale SSH requires tailnet_connector transport and port 22");
+    }
     if (response.status === 404) throw new HttpError(404, "PROFILE_NOT_FOUND", "Profile not found");
     if (response.status === 422) {
       throw new HttpError(400, "PROFILE_CREDENTIAL_REQUIRED", "A connection credential is required");

@@ -22,6 +22,7 @@ export function CredentialDialog({ profile, busy, requestError, t, onCancel, onS
   function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    if (profile.authenticationMethod === "tailscale_ssh") return;
     if (profile.authenticationMethod === "password") {
       if (!password) {
         setError(t("credentialRequired"));
@@ -71,7 +72,7 @@ export function CredentialDialog({ profile, busy, requestError, t, onCancel, onS
               </button>
             </span>
           </label>
-        ) : (
+        ) : profile.authenticationMethod === "private_key" ? (
           <>
             <label className="dialog-field">
               <span>{t("privateKey")}</span>
@@ -82,7 +83,7 @@ export function CredentialDialog({ profile, busy, requestError, t, onCancel, onS
               <input type="password" maxLength={4096} autoComplete="off" disabled={busy} value={passphrase} onChange={(event) => setPassphrase(event.target.value)} />
             </label>
           </>
-        )}
+        ) : null}
         {error || requestError ? <p className="form-error" role="alert">{error || requestError}</p> : null}
         <div className="dialog-actions">
           <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>{t("cancel")}</button>

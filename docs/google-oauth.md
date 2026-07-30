@@ -52,25 +52,26 @@ Restart Wrangler after changing `.dev.vars`, then use the integrated local URL `
 
 ## Cloudflare deployment
 
-First apply migrations to the remote D1 database:
+The GitHub production workflow applies migrations automatically. For a manual deployment, first generate `.wrangler.production.toml` with the production `DEPLOY_*` variables described in [`github-deployment.md`](github-deployment.md), then apply migrations to the configured D1 binding:
 
 ```bash
+npm run config:production
 npm run db:migrate:remote
 ```
 
-Set the non-secret bindings in `[vars]` in `wrangler.toml`:
+Keep the non-secret values in the GitHub `production` Environment or the `DEPLOY_*` variables used to generate the production config; do not put real deployment values in the checked-in `wrangler.toml`:
 
-```toml
-GOOGLE_CLIENT_ID = "your-google-oauth-web-client-id"
-GOOGLE_REDIRECT_URI = "https://your-domain.example/api/auth/google/callback"
-GOOGLE_ALLOWED_EMAILS = "admin@example.com"
+```dotenv
+DEPLOY_GOOGLE_CLIENT_ID=your-google-oauth-web-client-id
+DEPLOY_GOOGLE_ALLOWED_EMAILS=admin@example.com
+DEPLOY_APP_ORIGIN=https://your-domain.example
 ```
 
 Upload only the client secret through Wrangler, then deploy:
 
 ```bash
-npx wrangler secret put GOOGLE_CLIENT_SECRET
-npm run deploy
+npx wrangler secret put GOOGLE_CLIENT_SECRET --config .wrangler.production.toml
+npx wrangler deploy --config .wrangler.production.toml
 ```
 
 The callback origin and path must exactly match `GOOGLE_REDIRECT_URI`. Production callbacks must use HTTPS.

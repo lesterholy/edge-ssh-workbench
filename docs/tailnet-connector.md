@@ -1,6 +1,6 @@
 # Tailnet Connector 部署与使用
 
-Cloudflare Workers 的 TCP Socket 不能连接私有网络地址，Worker 本身也不能加入 Tailnet。Tailnet Connector 解决这个边界：SSH 客户端和私钥仍留在 Worker 的 SSH Durable Object 中，Connector 只在 WebSocket 与 Tailnet TCP 连接之间转发 SSH transport byte stream。
+Cloudflare Workers 的 TCP Socket 不能连接私有网络地址，Worker 本身也不能加入 Tailnet。Tailnet Connector 解决这个边界：SSH 客户端仍留在 Worker 的 SSH Durable Object 中，Connector 只在 WebSocket 与 Tailnet TCP 连接之间转发 SSH transport byte stream。普通 OpenSSH 的私钥仍由 Worker 使用；`tailscale_ssh` 模式则不保存或传输目标 VPS 凭据。
 
 ```text
 浏览器
@@ -34,13 +34,30 @@ Cloudflare Workers 的 TCP Socket 不能连接私有网络地址，Worker 本身
     {
       "src": ["tag:webssh-connector"],
       "dst": ["tag:ssh-target"],
-      "ip": ["tcp:22"]
+      "ip": ["tcp:22", "tcp:7022"]
     }
   ]
 }
 ```
 
-给运行 Connector 的 VPS 分配 `tag:webssh-connector`，只给允许 WebSSH 登录的 VPS 分配 `tag:ssh-target`。不要授权 Connector 访问整个 Tailnet 或任意端口。目标机的 `sshd` 仍应保留公钥认证、登录用户和主机防火墙限制。
+给运行 Connector 的 VPS 分配 `tag:webssh-connector`，只给允许 WebSSH 登录的 VPS 分配 `tag:ssh-target`。不使用普通 OpenSSH `7022` 时应从 grants 和端口白名单中删除它。不要授权 Connector 访问整个 Tailnet 或任意端口。目标机的 `sshd` 仍应保留公钥认证、登录用户和主机防火墙限制。
+
+如需使用无凭据的 Tailscale SSH，还必须增加 SSH policy。只授权 WebSSH 实际需要的 Linux 用户；下面的 `deploy` 应替换为目标机上的专用用户：
+
+```json
+{
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["tag:webssh-connector"],
+      "dst": ["tag:ssh-target"],
+      "users": ["deploy"]
+    }
+  ]
+}
+```
+
+所有 WebSSH 会话在目标机看来都由 Connector 节点身份发起。不要给该 tag 配置整个 Tailnet、任意用户或不必要的 `root` 权限。
 
 policy 生效后，可在对应节点的 Tailscale 管理页面设置 tag，或在节点上执行：
 
@@ -83,7 +100,7 @@ node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"
 ```dotenv
 CONNECTOR_HMAC_KEY=<上一步生成的值>
 TAILNET_ALLOWED_SUFFIX=example-tailnet.ts.net
-TAILNET_ALLOWED_PORTS=22
+TAILNET_ALLOWED_PORTS=22,7022
 LISTEN_HOST=127.0.0.1
 PORT=8789
 CONNECT_TIMEOUT_MS=10000
@@ -175,7 +192,7 @@ CLOUDFLARED_VERSION=<固定的 cloudflared 版本>
 CLOUDFLARED_TUNNEL_TOKEN=<Cloudflare remotely-managed Tunnel token>
 CONNECTOR_HMAC_KEY=<独立的 32-byte base64url key>
 TAILNET_ALLOWED_SUFFIX=example-tailnet.ts.net
-TAILNET_ALLOWED_PORTS=22
+TAILNET_ALLOWED_PORTS=22,7022
 ```
 
 `CLOUDFLARED_TUNNEL_TOKEN` 和 `CONNECTOR_HMAC_KEY` 是 Secret，不要写入 Compose、Git 或构建参数。Connector 使用 Tailscale MagicDNS `100.100.100.100`；部署后应从 Connector 容器验证完整 MagicDNS FQDN 能解析且目标 SSH 端口可达。若宿主机防火墙阻止 Docker bridge 转发到 `tailscale0`，只允许 `dokploy-network` 到目标 Tailnet 网段和 `TAILNET_ALLOWED_PORTS` 的出站流量，不要开放入站 `8789`。
@@ -212,21 +229,33 @@ npx wrangler deploy --config .wrangler.production.toml
 
 ## 6. 创建和使用 SSH Profile
 
-Web 界面的服务器 Profile 不需要新增模式字段。`SSH_TRANSPORT` 是整个 Worker deployment 的模式，启用后所有 Profile 都经 Connector 连接。
+`SSH_TRANSPORT` 是整个 Worker deployment 的网络模式，启用后所有 Profile 都经 Connector 连接。Profile 的认证方式仍需按目标端口选择。
 
-Profile 示例：
+无凭据 Tailscale SSH Profile：
 
 ```text
 名称: production-web-1
 主机: web-1.example-tailnet.ts.net
 端口: 22
 用户: deploy
+认证: Tailscale SSH
+```
+
+该模式不会显示或保存密码、私钥和 passphrase。Worker 只尝试 SSH `none` 认证，由 Connector 节点身份、Tailscale grants/ACL 和 SSH policy 决定是否允许登录指定 Linux 用户。`tailscale_ssh` 只能用于 `tailnet_connector` transport 和端口 `22`。
+
+通过 Tailnet 访问普通 OpenSSH 的 Profile：
+
+```text
+名称: production-web-1-openssh
+主机: web-1.example-tailnet.ts.net
+端口: 7022
+用户: deploy
 认证: 加密保存的私钥，或每次连接询问
 ```
 
 主机必须填写完整 MagicDNS FQDN，不能只写 `web-1`，也不能填写 `100.x.y.z` 或字面 Tailscale IPv6。浏览器操作、首次主机密钥确认、终端、监控和 SFTP 用法与 direct 模式相同。
 
-Connector 不会绕过目标 SSH 的认证。继续优先使用带 passphrase 的专用 SSH key；不要把本地私钥上传到 Connector VPS。保存到 EdgeSSH 的凭据仍由 Worker 使用 `CREDENTIAL_MASTER_KEY` 加密后写入 D1。
+对普通 OpenSSH，Connector 不会绕过目标 SSH 的认证。继续优先使用带 passphrase 的专用 SSH key；不要把本地私钥上传到 Connector VPS。保存到 EdgeSSH 的凭据仍由 Worker 使用 `CREDENTIAL_MASTER_KEY` 加密后写入 D1。
 
 ## 切换回 direct 模式
 
@@ -236,12 +265,12 @@ Connector 不会绕过目标 SSH 的认证。继续优先使用带 passphrase �
 SSH_TRANSPORT = "direct"
 ```
 
-部署后 Worker 会恢复使用 `cloudflare:sockets` 和原有公网 SSRF 校验。确认回滚成功后，可删除 Connector 专用 secrets；删除操作不可撤销，先确认 direct 模式已部署：
+部署后 Worker 会恢复使用 `cloudflare:sockets` 和原有公网 SSRF 校验。`tailscale_ssh` Profile 会被拒绝，必须先改为密码或私钥认证并配置公网可达目标。确认回滚成功后，可删除 Connector 专用 secrets；删除操作不可撤销，先确认 direct 模式已部署：
 
 ```bash
-npx wrangler secret delete TAILNET_CONNECTOR_HMAC_KEY
-npx wrangler secret delete TAILNET_CONNECTOR_ACCESS_CLIENT_ID
-npx wrangler secret delete TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET
+npx wrangler secret delete TAILNET_CONNECTOR_HMAC_KEY --config .wrangler.production.toml
+npx wrangler secret delete TAILNET_CONNECTOR_ACCESS_CLIENT_ID --config .wrangler.production.toml
+npx wrangler secret delete TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET --config .wrangler.production.toml
 ```
 
 ## 运维与排障

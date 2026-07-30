@@ -4,8 +4,10 @@ import { decryptSecret, encryptSecret, type EncryptedEnvelope, type SecretField 
 import { assertAllowedSshPort, normalizeHost } from "../security/network";
 import { asBoolean, assertOwnerId, assertRecordId, createId, nowIso, toInteger } from "./internal";
 
-export type ProfileAuthKind = "password" | "private_key";
-export type CredentialPersistence = "saved" | "prompt";
+export type ProfileAuthKind = "password" | "private_key" | "tailscale_ssh";
+export type CredentialPersistence = "saved" | "prompt" | "none";
+type StoredProfileAuthKind = Exclude<ProfileAuthKind, "tailscale_ssh">;
+type StoredCredentialPersistence = Exclude<CredentialPersistence, "none">;
 export type TerminalEncoding = "utf-8" | "gb18030" | "big5";
 export type TerminalType = "xterm-256color" | "xterm" | "screen-256color";
 
@@ -84,8 +86,9 @@ interface ProfileRow {
   host: string;
   port: number;
   username: string;
-  auth_kind: ProfileAuthKind;
-  credential_persistence: CredentialPersistence;
+  auth_kind: StoredProfileAuthKind;
+  tailscale_ssh: number;
+  credential_persistence: StoredCredentialPersistence;
   notes: string;
   initial_command: string | null;
   terminal_type: TerminalType;
@@ -120,10 +123,16 @@ function validateEnum<T extends string>(value: string, allowed: readonly T[], fi
   return value as T;
 }
 
+function profileAuthKind(row: ProfileRow): ProfileAuthKind {
+  return row.tailscale_ssh === 1 ? "tailscale_ssh" : row.auth_kind;
+}
+
 function toView(row: ProfileRow): ProfileView {
+  const authKind = profileAuthKind(row);
   const view = {
     id: row.id, name: row.name, host: row.host, port: row.port, username: row.username,
-    authenticationMethod: row.auth_kind, credentialPersistence: row.credential_persistence,
+    authenticationMethod: authKind,
+    credentialPersistence: authKind === "tailscale_ssh" ? "none" as const : row.credential_persistence,
     notes: row.notes, initialCommand: row.initial_command, terminalType: row.terminal_type,
     encoding: row.encoding, hasPassword: row.password_ciphertext !== null,
     hasPrivateKey: row.private_key_ciphertext !== null, hasPassphrase: row.passphrase_ciphertext !== null,
@@ -133,7 +142,7 @@ function toView(row: ProfileRow): ProfileView {
   };
   // Transitional non-enumerable aliases keep internal callers source-compatible without leaking extra API fields.
   Object.defineProperties(view, {
-    authKind: { value: row.auth_kind, enumerable: false },
+    authKind: { value: authKind, enumerable: false },
     collectHistory: { value: asBoolean(row.collect_history), enumerable: false },
     lastConnectedUsername: { value: row.last_connected_username, enumerable: false },
     lastHostFingerprint: { value: row.last_host_fingerprint, enumerable: false },
@@ -184,14 +193,24 @@ export class ProfileRepository {
     assertRecordId(id);
     const port = input.port ?? 22;
     assertAllowedSshPort(port);
+    const authKind = validateEnum(input.authKind, ["password", "private_key", "tailscale_ssh"], "auth kind");
+    if (authKind === "tailscale_ssh" && port !== 22) throw new Error("Tailscale SSH profiles must use port 22");
+    if (authKind === "tailscale_ssh" && (input.password || input.privateKey || input.passphrase)) {
+      throw new Error("Tailscale SSH profiles must not contain credentials");
+    }
+    const storedAuthKind: StoredProfileAuthKind = authKind === "tailscale_ssh" ? "password" : authKind;
+    const storedPersistence: StoredCredentialPersistence = authKind === "tailscale_ssh"
+      ? "saved"
+      : validateEnum(input.credentialPersistence ?? "saved", ["saved", "prompt"], "credential persistence");
     const now = nowIso();
     const password = input.password ? await encryptSecret(this.masterKey, input.password, { ownerId, recordId: id, field: "password" }) : null;
     const privateKey = input.privateKey ? await encryptSecret(this.masterKey, input.privateKey, { ownerId, recordId: id, field: "privateKey" }) : null;
     const passphrase = input.passphrase ? await encryptSecret(this.masterKey, input.passphrase, { ownerId, recordId: id, field: "passphrase" }) : null;
     const row: ProfileRow = {
       id, owner_id: ownerId, name: validateText(input.name, "name", 100), host: normalizeHost(input.host), port,
-      username: validateText(input.username, "username", 128), auth_kind: validateEnum(input.authKind, ["password", "private_key"], "auth kind"),
-      credential_persistence: validateEnum(input.credentialPersistence ?? "saved", ["saved", "prompt"], "credential persistence"),
+      username: validateText(input.username, "username", 128), auth_kind: storedAuthKind,
+      tailscale_ssh: authKind === "tailscale_ssh" ? 1 : 0,
+      credential_persistence: storedPersistence,
       notes: validateText(input.notes ?? "", "notes", 4000, true),
       initial_command: input.initialCommand == null ? null : validateText(input.initialCommand, "initial command", 8192, true),
       terminal_type: validateEnum(input.terminalType ?? "xterm-256color", ["xterm-256color", "xterm", "screen-256color"], "terminal type"),
@@ -202,13 +221,14 @@ export class ProfileRepository {
       last_connected_at: null, last_connected_username: null, last_host_fingerprint: null, created_at: now, updated_at: now,
     };
     await this.db.prepare(
-      `INSERT INTO profiles (id, owner_id, name, host, port, username, auth_kind, credential_persistence, notes, initial_command,
+      `INSERT INTO profiles (id, owner_id, name, host, port, username, auth_kind, tailscale_ssh, credential_persistence, notes, initial_command,
         terminal_type, encoding, collect_history, password_ciphertext, password_iv, password_version,
         private_key_ciphertext, private_key_iv, private_key_version, passphrase_ciphertext, passphrase_iv,
         passphrase_version, last_connected_at, last_connected_username, last_host_fingerprint, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
     ).bind(
-      row.id, row.owner_id, row.name, row.host, row.port, row.username, row.auth_kind, row.credential_persistence, row.notes, row.initial_command,
+      row.id, row.owner_id, row.name, row.host, row.port, row.username, row.auth_kind, row.tailscale_ssh,
+      row.credential_persistence, row.notes, row.initial_command,
       row.terminal_type, row.encoding, row.collect_history, row.password_ciphertext, row.password_iv, row.password_version,
       row.private_key_ciphertext, row.private_key_iv, row.private_key_version, row.passphrase_ciphertext, row.passphrase_iv,
       row.passphrase_version, row.created_at, row.updated_at,
@@ -217,14 +237,14 @@ export class ProfileRepository {
   }
 
   async createFromRequest(ownerId: string, request: ProfileCreateRequest): Promise<ProfileView> {
-    const shouldSave = request.credential.persistence === "saved";
+    const shouldSave = request.credential.method !== "tailscale_ssh" && request.credential.persistence === "saved";
     return this.create(ownerId, {
       name: request.name,
       host: request.host,
       port: request.port,
       username: request.username,
       authKind: request.credential.method,
-      credentialPersistence: request.credential.persistence,
+      credentialPersistence: request.credential.method === "tailscale_ssh" ? "none" : request.credential.persistence,
       notes: request.notes,
       initialCommand: request.initialCommand,
       terminalType: request.terminalType,
@@ -240,16 +260,36 @@ export class ProfileRepository {
     if (!row) return null;
     const port = patch.port ?? row.port;
     assertAllowedSshPort(port);
-    const password = await resolveSecret(this.masterKey, ownerId, profileId, "password", patch.password, fieldEnvelope(row, "password"));
-    const privateKey = await resolveSecret(this.masterKey, ownerId, profileId, "privateKey", patch.privateKey, fieldEnvelope(row, "privateKey"));
-    const passphrase = await resolveSecret(this.masterKey, ownerId, profileId, "passphrase", patch.passphrase, fieldEnvelope(row, "passphrase"));
+    const authKind = patch.authKind === undefined
+      ? profileAuthKind(row)
+      : validateEnum(patch.authKind, ["password", "private_key", "tailscale_ssh"], "auth kind");
+    if (authKind === "tailscale_ssh" && port !== 22) throw new Error("Tailscale SSH profiles must use port 22");
+    if (authKind === "tailscale_ssh" && (typeof patch.password === "string" || typeof patch.privateKey === "string" || typeof patch.passphrase === "string")) {
+      throw new Error("Tailscale SSH profiles must not contain credentials");
+    }
+    const password = authKind === "tailscale_ssh" ? null
+      : await resolveSecret(this.masterKey, ownerId, profileId, "password", patch.password, fieldEnvelope(row, "password"));
+    const privateKey = authKind === "tailscale_ssh" ? null
+      : await resolveSecret(this.masterKey, ownerId, profileId, "privateKey", patch.privateKey, fieldEnvelope(row, "privateKey"));
+    const passphrase = authKind === "tailscale_ssh" ? null
+      : await resolveSecret(this.masterKey, ownerId, profileId, "passphrase", patch.passphrase, fieldEnvelope(row, "passphrase"));
+    const storedPersistence: StoredCredentialPersistence = authKind === "tailscale_ssh"
+      ? "saved"
+      : validateEnum(
+          patch.credentialPersistence === undefined
+            ? row.credential_persistence
+            : patch.credentialPersistence,
+          ["saved", "prompt"],
+          "credential persistence",
+        );
     const updated: ProfileRow = {
       ...row,
       name: patch.name === undefined ? row.name : validateText(patch.name, "name", 100),
       host: patch.host === undefined ? row.host : normalizeHost(patch.host), port,
       username: patch.username === undefined ? row.username : validateText(patch.username, "username", 128),
-      auth_kind: patch.authKind === undefined ? row.auth_kind : validateEnum(patch.authKind, ["password", "private_key"], "auth kind"),
-      credential_persistence: patch.credentialPersistence === undefined ? row.credential_persistence : validateEnum(patch.credentialPersistence, ["saved", "prompt"], "credential persistence"),
+      auth_kind: authKind === "tailscale_ssh" ? "password" : authKind,
+      tailscale_ssh: authKind === "tailscale_ssh" ? 1 : 0,
+      credential_persistence: storedPersistence,
       notes: patch.notes === undefined ? row.notes : validateText(patch.notes, "notes", 4000, true),
       initial_command: patch.initialCommand === undefined ? row.initial_command
         : patch.initialCommand === null ? null : validateText(patch.initialCommand, "initial command", 8192, true),
@@ -262,12 +302,13 @@ export class ProfileRepository {
       updated_at: nowIso(),
     };
     await this.db.prepare(
-      `UPDATE profiles SET name = ?, host = ?, port = ?, username = ?, auth_kind = ?, credential_persistence = ?, notes = ?, initial_command = ?,
+      `UPDATE profiles SET name = ?, host = ?, port = ?, username = ?, auth_kind = ?, tailscale_ssh = ?, credential_persistence = ?, notes = ?, initial_command = ?,
         terminal_type = ?, encoding = ?, collect_history = ?, password_ciphertext = ?, password_iv = ?, password_version = ?,
         private_key_ciphertext = ?, private_key_iv = ?, private_key_version = ?, passphrase_ciphertext = ?, passphrase_iv = ?,
         passphrase_version = ?, updated_at = ? WHERE id = ? AND owner_id = ?`,
     ).bind(
-      updated.name, updated.host, updated.port, updated.username, updated.auth_kind, updated.credential_persistence, updated.notes, updated.initial_command,
+      updated.name, updated.host, updated.port, updated.username, updated.auth_kind, updated.tailscale_ssh,
+      updated.credential_persistence, updated.notes, updated.initial_command,
       updated.terminal_type, updated.encoding, updated.collect_history, updated.password_ciphertext, updated.password_iv, updated.password_version,
       updated.private_key_ciphertext, updated.private_key_iv, updated.private_key_version, updated.passphrase_ciphertext,
       updated.passphrase_iv, updated.passphrase_version, updated.updated_at, profileId, ownerId,
@@ -288,18 +329,25 @@ export class ProfileRepository {
     };
     if (request.credential) {
       patch.authKind = request.credential.method;
-      patch.credentialPersistence = request.credential.persistence;
       const mutation = (value: { action: "keep" } | { action: "clear" } | { action: "replace"; value: string }): string | null | undefined =>
         value.action === "keep" ? undefined : value.action === "clear" ? null : value.value;
-      if (request.credential.persistence === "prompt") {
+      if (request.credential.method === "tailscale_ssh") {
+        patch.credentialPersistence = "none";
+        patch.password = null;
+        patch.privateKey = null;
+        patch.passphrase = null;
+      } else if (request.credential.persistence === "prompt") {
+        patch.credentialPersistence = request.credential.persistence;
         patch.password = null;
         patch.privateKey = null;
         patch.passphrase = null;
       } else if (request.credential.method === "password") {
+        patch.credentialPersistence = request.credential.persistence;
         patch.password = mutation(request.credential.password);
         patch.privateKey = null;
         patch.passphrase = null;
       } else {
+        patch.credentialPersistence = request.credential.persistence;
         patch.password = null;
         patch.privateKey = mutation(request.credential.privateKey);
         patch.passphrase = mutation(request.credential.passphrase);

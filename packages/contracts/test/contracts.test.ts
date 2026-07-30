@@ -4,6 +4,7 @@ import {
   AuthStateSchema,
   BinaryFrameHeaderSchema,
   ClientResizeMessageSchema,
+  ProfileCreateRequestSchema,
   ProfileResponseSchema,
   ServerMetricsMessageSchema,
   ServerTransferProgressMessageSchema,
@@ -18,6 +19,49 @@ const id = "cc6f137f-5da4-44cf-a5a4-8e017ecb7a77";
 const now = "2026-07-28T07:00:00Z";
 
 describe("public contracts", () => {
+  it("models Tailscale SSH as a credentialless port-22 profile", () => {
+    const input = ProfileCreateRequestSchema.parse({
+      name: "tailnet-vps",
+      host: "vps-01.example-tailnet.ts.net",
+      port: 22,
+      username: "root",
+      notes: "",
+      terminalType: "xterm-256color",
+      encoding: "utf-8",
+      initialCommand: null,
+      credential: { method: "tailscale_ssh" },
+    });
+    expect(input.credential).toEqual({ method: "tailscale_ssh" });
+    expect(ProfileCreateRequestSchema.safeParse({ ...input, port: 7022 }).success).toBe(false);
+    expect(ProfileCreateRequestSchema.safeParse({
+      ...input,
+      credential: { method: "tailscale_ssh", password: "must-not-be-accepted" },
+    }).success).toBe(false);
+    const response = {
+      id,
+      name: input.name,
+      host: input.host,
+      port: input.port,
+      username: input.username,
+      notes: input.notes,
+      authenticationMethod: "tailscale_ssh",
+      credentialPersistence: "none",
+      hasPassword: false,
+      hasPrivateKey: false,
+      hasPassphrase: false,
+      terminalType: input.terminalType,
+      encoding: input.encoding,
+      initialCommand: null,
+      lastConnectedAt: null,
+      lastSuccessfulUsername: null,
+      lastHostKeyFingerprint: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    expect(ProfileResponseSchema.safeParse(response).success).toBe(true);
+    expect(ProfileResponseSchema.safeParse({ ...response, port: 7022 }).success).toBe(false);
+  });
+
   it("rejects unknown profile response fields, including credentials", () => {
     const result = ProfileResponseSchema.safeParse({
       id,

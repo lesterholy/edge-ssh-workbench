@@ -12,8 +12,8 @@
   "scripts": {
     "secrets:init": "node scripts/init-secrets.mjs",
     "config:production": "node scripts/render-wrangler-config.mjs",
-    "db:migrate:local": "wrangler d1 migrations apply edge-ssh-workbench --local",
-    "db:migrate:remote": "wrangler d1 migrations apply edge-ssh-workbench --remote",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config .wrangler.production.toml",
     "dev:web": "npm run dev -w @edgesh/web",
     "dev:worker": "npm run dev -w @edgesh/worker",
     "dev:connector": "npm run dev -w @edgesh/tailnet-connector",

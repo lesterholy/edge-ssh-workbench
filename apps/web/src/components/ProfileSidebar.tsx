@@ -19,7 +19,7 @@ type Draft = {
   host: string;
   port: number;
   username: string;
-  method: "password" | "private_key";
+  method: "password" | "private_key" | "tailscale_ssh";
   persistence: "saved" | "prompt";
   password: string;
   privateKey: string;
@@ -50,6 +50,13 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
+  const editingProfile = editingId ? profiles.find((profile) => profile.id === editingId) : undefined;
+  const hasSavedCredential = draft.method === "password"
+    ? editingProfile?.hasPassword === true
+    : draft.method === "private_key"
+      ? editingProfile?.hasPrivateKey === true
+      : false;
+
   const filtered = useMemo(() => {
     const query = filter.trim().toLowerCase();
     if (!query) return profiles;
@@ -71,7 +78,7 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
       port: profile.port,
       username: profile.username,
       method: profile.authenticationMethod,
-      persistence: profile.credentialPersistence,
+      persistence: profile.credentialPersistence === "none" ? "saved" : profile.credentialPersistence,
       password: "",
       privateKey: "",
       passphrase: "",
@@ -87,7 +94,9 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
     setError("");
     try {
       if (editingId) {
-        const credential: ProfileUpdateRequest["credential"] = draft.method === "password"
+        const credential: ProfileUpdateRequest["credential"] = draft.method === "tailscale_ssh"
+          ? { method: "tailscale_ssh" }
+          : draft.method === "password"
           ? {
               method: "password",
               persistence: draft.persistence,
@@ -115,7 +124,9 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
           credential
         });
       } else {
-        const credential: ProfileCreateRequest["credential"] = draft.method === "password"
+        const credential: ProfileCreateRequest["credential"] = draft.method === "tailscale_ssh"
+          ? { method: "tailscale_ssh" }
+          : draft.method === "password"
           ? draft.persistence === "prompt"
             ? { method: "password", persistence: "prompt" }
             : { method: "password", persistence: "saved", password: draft.password }
@@ -183,26 +194,39 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
           <input required maxLength={100} placeholder={t("name")} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
           <input required maxLength={253} placeholder={t("host")} value={draft.host} onChange={(event) => setDraft({ ...draft, host: event.target.value })} />
           <div className="split-fields">
-            <input required type="number" min={1} max={65535} value={draft.port} onChange={(event) => setDraft({ ...draft, port: Number(event.target.value) })} />
+            <input required disabled={draft.method === "tailscale_ssh"} type="number" min={1} max={65535} value={draft.port} onChange={(event) => setDraft({ ...draft, port: Number(event.target.value) })} />
             <input required maxLength={128} placeholder={t("username")} value={draft.username} onChange={(event) => setDraft({ ...draft, username: event.target.value })} />
           </div>
-          <select value={draft.method} onChange={(event) => setDraft({ ...draft, method: event.target.value as Draft["method"] })}>
+          <select value={draft.method} onChange={(event) => {
+            const method = event.target.value as Draft["method"];
+            setDraft({
+              ...draft,
+              method,
+              port: method === "tailscale_ssh" ? 22 : draft.port,
+              password: "",
+              privateKey: "",
+              passphrase: ""
+            });
+          }}>
             <option value="password">{t("password")}</option>
             <option value="private_key">{t("privateKey")}</option>
+            <option value="tailscale_ssh">{t("tailscaleSsh")}</option>
           </select>
-          <select value={draft.persistence} onChange={(event) => setDraft({ ...draft, persistence: event.target.value as Draft["persistence"], password: "", privateKey: "", passphrase: "" })}>
-            <option value="saved">{t("saveCredential")}</option>
-            <option value="prompt">{t("promptCredential")}</option>
-          </select>
-          {draft.persistence === "prompt" ? <p className="form-help">{t("promptCredentialHelp")}</p> : null}
-          {draft.persistence === "saved" && draft.method === "password" ? (
+          {draft.method !== "tailscale_ssh" ? (
+            <select value={draft.persistence} onChange={(event) => setDraft({ ...draft, persistence: event.target.value as Draft["persistence"], password: "", privateKey: "", passphrase: "" })}>
+              <option value="saved">{t("saveCredential")}</option>
+              <option value="prompt">{t("promptCredential")}</option>
+            </select>
+          ) : null}
+          {draft.method !== "tailscale_ssh" && draft.persistence === "prompt" ? <p className="form-help">{t("promptCredentialHelp")}</p> : null}
+          {draft.method === "password" && draft.persistence === "saved" ? (
             <span className="secret-input">
-              <input required={!editingId} type={showPassword ? "text" : "password"} maxLength={4096} placeholder={editingId ? `${t("password")} (${t("save")}: optional)` : t("password")} value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} />
+              <input required={!hasSavedCredential} type={showPassword ? "text" : "password"} maxLength={4096} placeholder={hasSavedCredential ? `${t("password")} (${t("save")}: optional)` : t("password")} value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} />
               <button type="button" title={showPassword ? "Hide" : "Show"} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button>
             </span>
-          ) : draft.persistence === "saved" ? (
+          ) : draft.method === "private_key" && draft.persistence === "saved" ? (
             <>
-              <textarea required={!editingId} rows={5} placeholder={t("privateKey")} value={draft.privateKey} onChange={(event) => setDraft({ ...draft, privateKey: event.target.value })} />
+              <textarea required={!hasSavedCredential} rows={5} placeholder={hasSavedCredential ? `${t("privateKey")} (${t("save")}: optional)` : t("privateKey")} value={draft.privateKey} onChange={(event) => setDraft({ ...draft, privateKey: event.target.value })} />
               <input type="password" placeholder={t("passphrase")} value={draft.passphrase} onChange={(event) => setDraft({ ...draft, passphrase: event.target.value })} />
             </>
           ) : null}

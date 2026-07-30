@@ -231,8 +231,12 @@ export class SSHSessionDO implements DurableObject {
     } catch (error) {
       const message = asError(error).message;
       const credentialRequired = /credential (?:is missing|required)|requires an ephemeral credential/i.test(message);
-      return Response.json({ error: credentialRequired ? "Credential required" : "Profile not found" }, {
-        status: credentialRequired ? 422 : 404,
+      const tailscaleConfigurationInvalid = /Tailscale SSH profile/i.test(message);
+      return Response.json({
+        error: credentialRequired ? "Credential required"
+          : tailscaleConfigurationInvalid ? "Tailscale SSH profile configuration is invalid" : "Profile not found",
+      }, {
+        status: credentialRequired ? 422 : tailscaleConfigurationInvalid ? 400 : 404,
       });
     }
 
@@ -1060,13 +1064,14 @@ export class SSHSessionDO implements DurableObject {
   }
 }
 
-class D1SSHProfileRepository implements SSHProfileRepository {
+export class D1SSHProfileRepository implements SSHProfileRepository {
   constructor(private readonly env: Env) {}
 
   async resolve(ownerId: string, profileId: string, ephemeral?: EphemeralSSHCredential): Promise<SSHConnectionProfile> {
     const [row, settings] = await Promise.all([
       this.env.DB.prepare(`
       SELECT id, owner_id, name, host, port, username, auth_kind, credential_persistence, collect_history,
+             tailscale_ssh,
              password_ciphertext, password_iv, password_version,
              private_key_ciphertext, private_key_iv, private_key_version,
              passphrase_ciphertext, passphrase_iv, passphrase_version
@@ -1077,12 +1082,21 @@ class D1SSHProfileRepository implements SSHProfileRepository {
     ]);
     if (!row) throw new Error("SSH profile was not found");
 
-    if (row.credential_persistence === "prompt" && !ephemeral) {
+    const tailscaleSsh = row.tailscale_ssh === 1;
+    if (!tailscaleSsh && row.credential_persistence === "prompt" && !ephemeral) {
       throw new Error("This SSH profile requires an ephemeral credential");
     }
 
     let authentication: SSHConnectionProfile["authentication"];
-    if (ephemeral?.method === "password") {
+    if (tailscaleSsh) {
+      const config = getRuntimeConfig(this.env);
+      if (config.sshTransport !== "tailnet_connector") {
+        throw new Error("Tailscale SSH profiles require tailnet_connector transport");
+      }
+      if (row.port !== 22) throw new Error("Tailscale SSH profiles must use port 22");
+      if (ephemeral) throw new Error("Tailscale SSH profiles do not accept SSH credentials");
+      authentication = { kind: "tailscale-ssh" };
+    } else if (ephemeral?.method === "password") {
       authentication = { kind: "password", password: ephemeral.password };
     } else if (ephemeral?.method === "private_key") {
       authentication = { kind: "private-key", privateKey: ephemeral.privateKey, passphrase: ephemeral.passphrase };
@@ -1164,6 +1178,7 @@ interface ProfileRow {
   port: number;
   username: string;
   auth_kind: string;
+  tailscale_ssh: number;
   credential_persistence: "saved" | "prompt";
   collect_history: number;
   password_ciphertext: string | null;

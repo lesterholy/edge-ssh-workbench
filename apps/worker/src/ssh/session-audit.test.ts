@@ -122,6 +122,26 @@ describe("SSH session audit", () => {
     expect(spies.commands.append).not.toHaveBeenCalled();
   });
 
+  it("records Tailscale SSH as a distinct credentialless authentication method", async () => {
+    const spies = repositorySpies();
+    const tailscaleProfile: SSHConnectionProfile = {
+      ...profile,
+      port: 22,
+      authentication: { kind: "tailscale-ssh" },
+    };
+    await SSHSessionAudit.start(
+      {} as Env,
+      "77777777-7777-4777-8777-777777777777",
+      tailscaleProfile,
+      spies.repositories,
+    );
+
+    expect(spies.connectionSessions.start).toHaveBeenCalledWith(
+      tailscaleProfile.ownerId,
+      expect.objectContaining({ authenticationMethod: "tailscale_ssh" }),
+    );
+  });
+
   it("finalizes the inserted session if the initial event write fails", async () => {
     const spies = repositorySpies();
     spies.sessionEvents.append.mockRejectedValueOnce(new Error("D1 unavailable"));

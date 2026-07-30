@@ -151,6 +151,7 @@ interface SessionRow {
   target_port: number;
   target_username: string;
   auth_kind: AuthenticationMethod;
+  tailscale_ssh: number;
   started_at: string;
   connected_at: string | null;
   closed_at: string | null;
@@ -161,7 +162,8 @@ interface SessionRow {
 function toSession(row: SessionRow): SessionHistoryItem {
   return {
     id: row.id, profileId: row.profile_id, profileName: row.profile_name_snapshot, host: row.target_host,
-    port: row.target_port, username: row.target_username, authenticationMethod: row.auth_kind,
+    port: row.target_port, username: row.target_username,
+    authenticationMethod: row.tailscale_ssh === 1 ? "tailscale_ssh" : row.auth_kind,
     startedAt: row.started_at, connectedAt: row.connected_at, endedAt: row.closed_at,
     finalState: row.status, closeReason: row.close_code,
   };
@@ -196,12 +198,14 @@ export class ConnectionSessionRepository {
   async start(ownerId: string, input: StartConnectionSessionInput): Promise<SessionHistoryItem> {
     const id = input.id ?? createId("ses");
     const startedAt = input.startedAt ?? nowIso();
+    const tailscaleSsh = input.authenticationMethod === "tailscale_ssh";
+    const storedAuthKind = tailscaleSsh ? "password" : input.authenticationMethod;
     await this.db.prepare(
       `INSERT INTO connection_sessions (id, owner_id, profile_id, status, target_host, target_port,
-        target_username, profile_name_snapshot, auth_kind, started_at, created_at)
-       VALUES (?, ?, ?, 'authorizing', ?, ?, ?, ?, ?, ?, ?)`,
+        target_username, profile_name_snapshot, auth_kind, tailscale_ssh, started_at, created_at)
+       VALUES (?, ?, ?, 'authorizing', ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(id, ownerId, input.profileId, input.host, input.port, input.username, input.profileName,
-      input.authenticationMethod, startedAt, startedAt).run();
+      storedAuthKind, tailscaleSsh ? 1 : 0, startedAt, startedAt).run();
     return {
       id, profileId: input.profileId, profileName: input.profileName, host: input.host, port: input.port,
       username: input.username, authenticationMethod: input.authenticationMethod, startedAt,

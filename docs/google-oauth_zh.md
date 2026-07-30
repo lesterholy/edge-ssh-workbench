@@ -52,25 +52,26 @@ GOOGLE_ALLOWED_EMAILS=primary@example.com,recovery@example.com
 
 ## Cloudflare 部署
 
-首先对远程 D1 数据库应用 migration：
+GitHub production workflow 会自动应用 migration。手动部署时，先按 [`github-deployment_zh.md`](github-deployment_zh.md) 配置生产 `DEPLOY_*` 变量并生成 `.wrangler.production.toml`，再迁移其中绑定的 D1：
 
 ```bash
+npm run config:production
 npm run db:migrate:remote
 ```
 
-在 `wrangler.toml` 的 `[vars]` 中配置非敏感绑定：
+非敏感值应保存在 GitHub `production` Environment，或用于生成生产配置的 `DEPLOY_*` 变量中；不要把真实部署值写入仓库中的 `wrangler.toml`：
 
-```toml
-GOOGLE_CLIENT_ID = "your-google-oauth-web-client-id"
-GOOGLE_REDIRECT_URI = "https://your-domain.example/api/auth/google/callback"
-GOOGLE_ALLOWED_EMAILS = "admin@example.com"
+```dotenv
+DEPLOY_GOOGLE_CLIENT_ID=your-google-oauth-web-client-id
+DEPLOY_GOOGLE_ALLOWED_EMAILS=admin@example.com
+DEPLOY_APP_ORIGIN=https://your-domain.example
 ```
 
 只通过 Wrangler 上传 Client Secret，然后部署：
 
 ```bash
-npx wrangler secret put GOOGLE_CLIENT_SECRET
-npm run deploy
+npx wrangler secret put GOOGLE_CLIENT_SECRET --config .wrangler.production.toml
+npx wrangler deploy --config .wrangler.production.toml
 ```
 
 回调的 origin 和路径必须与 `GOOGLE_REDIRECT_URI` 完全一致。生产环境回调必须使用 HTTPS。

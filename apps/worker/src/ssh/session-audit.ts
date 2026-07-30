@@ -38,7 +38,9 @@ export class SSHSessionAudit {
       host: profile.host,
       port: profile.port,
       username: profile.username,
-      authenticationMethod: profile.authentication.kind === "password" ? "password" : "private_key"
+      authenticationMethod: profile.authentication.kind === "password"
+        ? "password"
+        : profile.authentication.kind === "private-key" ? "private_key" : "tailscale_ssh"
     });
     try {
       await repositories.sessionEvents.append(profile.ownerId, sessionId, "authorized", "SSH session authorization accepted");

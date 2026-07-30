@@ -22,16 +22,19 @@ export const HostKeyFingerprintSchema = z
   .string()
   .regex(/^SHA256:[A-Za-z0-9+/]{43}$/, "Invalid SHA-256 host-key fingerprint");
 
-export const AuthenticationMethodSchema = z.enum(["password", "private_key"]);
+export const AuthenticationMethodSchema = z.enum(["password", "private_key", "tailscale_ssh"]);
 export type AuthenticationMethod = z.infer<typeof AuthenticationMethodSchema>;
 
-export const CredentialPersistenceSchema = z.enum(["saved", "prompt"]);
+export const SecretCredentialPersistenceSchema = z.enum(["saved", "prompt"]);
+export type SecretCredentialPersistence = z.infer<typeof SecretCredentialPersistenceSchema>;
+
+export const CredentialPersistenceSchema = z.enum(["saved", "prompt", "none"]);
 export type CredentialPersistence = z.infer<typeof CredentialPersistenceSchema>;
 
 export const PasswordCredentialInputSchema = z
   .object({
     method: z.literal("password"),
-    persistence: CredentialPersistenceSchema,
+    persistence: SecretCredentialPersistenceSchema,
     password: SshPasswordSchema.optional(),
   })
   .strict()
@@ -56,7 +59,7 @@ export type PasswordCredentialInput = z.infer<typeof PasswordCredentialInputSche
 export const PrivateKeyCredentialInputSchema = z
   .object({
     method: z.literal("private_key"),
-    persistence: CredentialPersistenceSchema,
+    persistence: SecretCredentialPersistenceSchema,
     privateKey: PrivateKeySchema.optional(),
     passphrase: PrivateKeyPassphraseSchema.optional(),
     savePassphrase: z.boolean().default(false),
@@ -89,9 +92,15 @@ export const PrivateKeyCredentialInputSchema = z
   });
 export type PrivateKeyCredentialInput = z.infer<typeof PrivateKeyCredentialInputSchema>;
 
+export const TailscaleSshCredentialInputSchema = z
+  .object({ method: z.literal("tailscale_ssh") })
+  .strict();
+export type TailscaleSshCredentialInput = z.infer<typeof TailscaleSshCredentialInputSchema>;
+
 export const ProfileCredentialInputSchema = z.union([
   PasswordCredentialInputSchema,
   PrivateKeyCredentialInputSchema,
+  TailscaleSshCredentialInputSchema,
 ]);
 export type ProfileCredentialInput = z.infer<typeof ProfileCredentialInputSchema>;
 
@@ -111,7 +120,16 @@ export const ProfileCreateRequestSchema = z
     ...ProfileEditableFields,
     credential: ProfileCredentialInputSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.credential.method === "tailscale_ssh" && value.port !== 22) {
+      context.addIssue({
+        code: "custom",
+        path: ["port"],
+        message: "Tailscale SSH profiles must use port 22",
+      });
+    }
+  });
 export type ProfileCreateRequest = z.infer<typeof ProfileCreateRequestSchema>;
 
 const createSecretMutationSchema = <T extends z.ZodType<string>>(valueSchema: T) => z.union([
@@ -139,7 +157,7 @@ export type PassphraseSecretMutation = z.infer<typeof PassphraseSecretMutationSc
 export const PasswordCredentialUpdateSchema = z
   .object({
     method: z.literal("password"),
-    persistence: CredentialPersistenceSchema,
+    persistence: SecretCredentialPersistenceSchema,
     password: PasswordSecretMutationSchema,
   })
   .strict()
@@ -157,7 +175,7 @@ export type PasswordCredentialUpdate = z.infer<typeof PasswordCredentialUpdateSc
 export const PrivateKeyCredentialUpdateSchema = z
   .object({
     method: z.literal("private_key"),
-    persistence: CredentialPersistenceSchema,
+    persistence: SecretCredentialPersistenceSchema,
     privateKey: PrivateKeySecretMutationSchema,
     passphrase: PassphraseSecretMutationSchema,
   })
@@ -175,9 +193,15 @@ export const PrivateKeyCredentialUpdateSchema = z
   });
 export type PrivateKeyCredentialUpdate = z.infer<typeof PrivateKeyCredentialUpdateSchema>;
 
+export const TailscaleSshCredentialUpdateSchema = z
+  .object({ method: z.literal("tailscale_ssh") })
+  .strict();
+export type TailscaleSshCredentialUpdate = z.infer<typeof TailscaleSshCredentialUpdateSchema>;
+
 export const ProfileCredentialUpdateSchema = z.union([
   PasswordCredentialUpdateSchema,
   PrivateKeyCredentialUpdateSchema,
+  TailscaleSshCredentialUpdateSchema,
 ]);
 export type ProfileCredentialUpdate = z.infer<typeof ProfileCredentialUpdateSchema>;
 
@@ -195,7 +219,15 @@ export const ProfileUpdateRequestSchema = NonEmptyPatch(
       credential: ProfileCredentialUpdateSchema.optional(),
     })
     .strict(),
-);
+).superRefine((value, context) => {
+  if (value.credential?.method === "tailscale_ssh" && value.port !== undefined && value.port !== 22) {
+    context.addIssue({
+      code: "custom",
+      path: ["port"],
+      message: "Tailscale SSH profiles must use port 22",
+    });
+  }
+});
 export type ProfileUpdateRequest = z.infer<typeof ProfileUpdateRequestSchema>;
 
 export const ProfileResponseSchema = z
@@ -220,7 +252,22 @@ export const ProfileResponseSchema = z
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.authenticationMethod === "tailscale_ssh") {
+      if (value.port !== 22) {
+        context.addIssue({ code: "custom", path: ["port"], message: "Tailscale SSH profiles must use port 22" });
+      }
+      if (value.credentialPersistence !== "none") {
+        context.addIssue({ code: "custom", path: ["credentialPersistence"], message: "Tailscale SSH does not persist credentials" });
+      }
+      if (value.hasPassword || value.hasPrivateKey || value.hasPassphrase) {
+        context.addIssue({ code: "custom", message: "Tailscale SSH profiles must not contain credentials" });
+      }
+    } else if (value.credentialPersistence === "none") {
+      context.addIssue({ code: "custom", path: ["credentialPersistence"], message: "Credential persistence is required" });
+    }
+  });
 export type ProfileResponse = z.infer<typeof ProfileResponseSchema>;
 
 export const ProfileListResponseSchema = z

@@ -1,7 +1,7 @@
 import { ProfileResponseSchema } from "@edgesh/contracts";
 import { describe, expect, it } from "vitest";
 
-import { redactCommand } from "./history";
+import { ConnectionSessionRepository, redactCommand } from "./history";
 import { decodeTimeCursor, encodeTimeCursor } from "./pagination";
 import { OAuthRepository } from "./oauth";
 import { ProfileRepository } from "./profiles";
@@ -21,12 +21,41 @@ describe("storage helpers", () => {
     expect(redactCommand("cat <<EOF\n-----BEGIN PRIVATE KEY-----\nabc")).toBe("[REDACTED]");
   });
 
+  it("stores Tailscale SSH session history without violating the legacy auth constraint", async () => {
+    let boundValues: unknown[] = [];
+    const database = {
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => {
+          expect(values).toHaveLength((sql.match(/\?/g) ?? []).length);
+          boundValues = values;
+          return { run: async () => ({ meta: { changes: 1 } }) };
+        },
+      }),
+    } as unknown as D1Database;
+    const result = await new ConnectionSessionRepository(database).start(
+      "22222222-2222-4222-8222-222222222222",
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        profileId: "11111111-1111-4111-8111-111111111111",
+        profileName: "Tailnet",
+        host: "vps-01.example-tailnet.ts.net",
+        port: 22,
+        username: "deploy",
+        authenticationMethod: "tailscale_ssh",
+      },
+    );
+
+    expect(result.authenticationMethod).toBe("tailscale_ssh");
+    expect(boundValues).toContain("password");
+    expect(boundValues).toContain(1);
+  });
+
   it("does not enumerate internal profile fields in API JSON", async () => {
     const row = {
       id: "11111111-1111-4111-8111-111111111111",
       owner_id: "22222222-2222-4222-8222-222222222222",
       name: "Production", host: "ssh.example.test", port: 22, username: "root",
-      auth_kind: "password", credential_persistence: "saved", notes: "", initial_command: null,
+      auth_kind: "password", tailscale_ssh: 0, credential_persistence: "saved", notes: "", initial_command: null,
       terminal_type: "xterm-256color", encoding: "utf-8", collect_history: 1,
       password_ciphertext: "opaque", password_iv: "opaque", password_version: 1,
       private_key_ciphertext: null, private_key_iv: null, private_key_version: null,
@@ -72,6 +101,90 @@ describe("storage helpers", () => {
     expect(profile.hasPassphrase).toBe(true);
     expect(JSON.stringify(boundValues)).not.toContain("plaintext-key");
     expect(JSON.stringify(boundValues)).not.toContain("plaintext-passphrase");
+  });
+
+  it("stores Tailscale SSH profiles without credential material", async () => {
+    let boundValues: unknown[] = [];
+    const database = {
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => {
+          expect(values).toHaveLength((sql.match(/\?/g) ?? []).length);
+          boundValues = values;
+          return { run: async () => ({ meta: { changes: 1 } }) };
+        },
+      }),
+    } as unknown as D1Database;
+    const repository = new ProfileRepository(database, masterKey);
+    const profile = await repository.create(
+      "22222222-2222-4222-8222-222222222222",
+      {
+        name: "Tailnet",
+        host: "vps-01.example-tailnet.ts.net",
+        port: 22,
+        username: "root",
+        authKind: "tailscale_ssh",
+        credentialPersistence: "none",
+      },
+    );
+
+    expect(profile).toMatchObject({
+      authenticationMethod: "tailscale_ssh",
+      credentialPersistence: "none",
+      hasPassword: false,
+      hasPrivateKey: false,
+      hasPassphrase: false,
+    });
+    expect(boundValues[7]).toBe(1);
+    await expect(repository.create(
+      "22222222-2222-4222-8222-222222222222",
+      {
+        name: "Wrong port",
+        host: "vps-01.example-tailnet.ts.net",
+        port: 7022,
+        username: "root",
+        authKind: "tailscale_ssh",
+      },
+    )).rejects.toThrow("port 22");
+  });
+
+  it("clears stored credentials when a profile switches to Tailscale SSH", async () => {
+    const row = {
+      id: "11111111-1111-4111-8111-111111111111",
+      owner_id: "22222222-2222-4222-8222-222222222222",
+      name: "Production", host: "vps-01.example-tailnet.ts.net", port: 22, username: "root",
+      auth_kind: "password", tailscale_ssh: 0, credential_persistence: "saved", notes: "", initial_command: null,
+      terminal_type: "xterm-256color", encoding: "utf-8", collect_history: 1,
+      password_ciphertext: "opaque-password", password_iv: "opaque-iv", password_version: 1,
+      private_key_ciphertext: null, private_key_iv: null, private_key_version: null,
+      passphrase_ciphertext: null, passphrase_iv: null, passphrase_version: null,
+      last_connected_at: null, last_connected_username: null, last_host_fingerprint: null,
+      created_at: "2026-07-28T07:00:00.000Z", updated_at: "2026-07-28T07:00:00.000Z",
+    };
+    let updateValues: unknown[] = [];
+    const database = {
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          first: async () => row,
+          run: async () => {
+            expect(values).toHaveLength((sql.match(/\?/g) ?? []).length);
+            updateValues = values;
+            return { meta: { changes: 1 } };
+          },
+        }),
+      }),
+    } as unknown as D1Database;
+    const profile = await new ProfileRepository(database, masterKey).updateFromRequest(
+      row.owner_id,
+      row.id,
+      { credential: { method: "tailscale_ssh" } },
+    );
+
+    expect(profile).toMatchObject({
+      authenticationMethod: "tailscale_ssh",
+      credentialPersistence: "none",
+      hasPassword: false,
+    });
+    expect(updateValues).not.toContain("opaque-password");
   });
 });
 

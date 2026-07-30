@@ -1,6 +1,7 @@
 export type SSHAuthentication =
   | { kind: "password"; password: string }
-  | { kind: "private-key"; privateKey: string; passphrase?: string };
+  | { kind: "private-key"; privateKey: string; passphrase?: string }
+  | { kind: "tailscale-ssh" };
 
 export type EphemeralSSHCredential =
   | { method: "password"; password: string }
