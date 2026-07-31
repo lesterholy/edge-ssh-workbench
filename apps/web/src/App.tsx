@@ -244,7 +244,7 @@ export default function App() {
             <button className={tab === "log" ? "active" : ""} type="button" role="tab" aria-selected={tab === "log"} onClick={() => setTab("log")}><ScrollText size={15} />{t("sessionLog")}</button>
           </div>
           <div className="tab-content">
-            {tab === "files" ? <FileWorkspace channel={channel} message={lastMessage} t={t} /> : null}
+            {tab === "files" ? <FileWorkspace channel={connected ? channel : null} message={lastMessage} t={t} /> : null}
             {tab === "history" ? <HistoryPanel t={t} /> : null}
             {tab === "log" ? <div className="event-log">{events.map((event, index) => <code key={`${index}-${event}`}>{event}</code>)}</div> : null}
           </div>

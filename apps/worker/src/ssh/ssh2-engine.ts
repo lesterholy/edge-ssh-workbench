@@ -40,33 +40,20 @@ export function sshClientAuthenticationOptions(authentication: SSHAuthentication
   return { privateKey: authentication.privateKey, passphrase: authentication.passphrase };
 }
 
-const MODERN_ALGORITHMS = {
-  kex: [
-    "curve25519-sha256",
-    "curve25519-sha256@libssh.org",
-    "ecdh-sha2-nistp256",
-    "ecdh-sha2-nistp384",
-    "ecdh-sha2-nistp521",
-    "diffie-hellman-group16-sha512",
-    "diffie-hellman-group18-sha512",
-    "diffie-hellman-group14-sha256"
-  ],
-  serverHostKey: [
-    "ssh-ed25519",
-    "ecdsa-sha2-nistp256",
-    "ecdsa-sha2-nistp384",
-    "ecdsa-sha2-nistp521",
-    "rsa-sha2-512",
-    "rsa-sha2-256"
-  ],
-  cipher: ["aes128-ctr", "aes192-ctr", "aes256-ctr"],
-  hmac: [
-    "hmac-sha2-256-etm@openssh.com",
-    "hmac-sha2-512-etm@openssh.com",
-    "hmac-sha2-256",
-    "hmac-sha2-512"
-  ],
-  compress: ["none", "zlib@openssh.com"]
+export const WORKER_SAFE_ALGORITHMS = {
+  // ssh2 builds its defaults from the crypto algorithms exposed by the current
+  // runtime. Preserve that capability filtering and remove only legacy SHA-1
+  // fallbacks instead of forcing Node-only algorithms in Workers.
+  serverHostKey: {
+    append: [],
+    prepend: [],
+    remove: ["ssh-rsa"]
+  },
+  hmac: {
+    append: [],
+    prepend: [],
+    remove: ["hmac-sha1-etm@openssh.com", "hmac-sha1"]
+  }
 } satisfies Algorithms;
 
 interface PendingHostKey {
@@ -385,7 +372,7 @@ export class SSH2Engine implements SSHEngine {
         readyTimeout: clamp(this.dependencies.connectTimeoutMs ?? 20_000, 2_000, 30_000),
         keepaliveInterval: 15_000,
         keepaliveCountMax: 3,
-        algorithms: MODERN_ALGORITHMS,
+        algorithms: WORKER_SAFE_ALGORITHMS,
         hostVerifier: ((key, verify) => {
           void this.verifyHostKey(new Uint8Array(key), profile).then(verify, () => verify(false));
         }) satisfies HostVerifier
