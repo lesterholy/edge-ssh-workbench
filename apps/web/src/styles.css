@@ -593,8 +593,8 @@ select { cursor: pointer; }
   background: color-mix(in srgb, var(--info) 8%, transparent);
 }
 .state-error { border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); color: var(--danger); background: var(--danger-soft); }
-.terminal-host { position: relative; min-width: 0; min-height: 0; padding: 10px 12px; overflow: hidden; }
-.terminal-host .xterm { height: 100%; }
+.terminal-host { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.terminal-host .xterm { height: 100%; padding: 10px 12px; }
 .terminal-idle {
   position: absolute;
   inset: 0;
