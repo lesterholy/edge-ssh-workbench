@@ -123,6 +123,7 @@ export class SSHSessionDO implements DurableObject {
   private readonly sessions = new Map<WebSocket, LiveSession>();
   private readonly deadlines = new Map<WebSocket, ReturnType<typeof setTimeout>>();
   private readonly startingSockets = new Set<WebSocket>();
+  private readonly messageQueues = new Map<WebSocket, Promise<void>>();
   private readonly dependencies: SSHSessionDODependencies;
 
   constructor(
@@ -151,6 +152,17 @@ export class SSHSessionDO implements DurableObject {
   }
 
   async webSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    const previous = this.messageQueues.get(socket) ?? Promise.resolve();
+    const operation = previous.then(() => this.processWebSocketMessage(socket, raw));
+    this.messageQueues.set(socket, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.messageQueues.get(socket) === operation) this.messageQueues.delete(socket);
+    }
+  }
+
+  private async processWebSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     try {
       if (typeof raw !== "string") {
         await this.handleBinaryFrame(socket, new Uint8Array(raw));

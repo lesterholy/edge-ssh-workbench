@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { WS_PROTOCOL_VERSION, type ClientWebSocketMessage } from "@edgesh/contracts";
+
 import type { Env } from "../env";
 import { D1SSHProfileRepository, SSHSessionDO } from "./ssh-session";
 
@@ -130,5 +132,52 @@ describe("SSHSessionDO restart recovery", () => {
       body: JSON.stringify({ sessionId })
     }));
     expect(socket.close).toHaveBeenCalledWith(1012, "Worker restarted; reconnect required");
+  });
+});
+
+describe("SSHSessionDO message ordering", () => {
+  it("finishes connect handling before processing a following resize", async () => {
+    const state = {
+      getWebSockets: () => [],
+      blockConcurrencyWhile: (callback: () => Promise<unknown>) => callback(),
+    } as unknown as DurableObjectState;
+    const session = new SSHSessionDO(state, {} as Env);
+    const socket = {} as WebSocket;
+    const events: string[] = [];
+    let finishConnect!: () => void;
+    const connectPending = new Promise<void>((resolve) => { finishConnect = resolve; });
+    const internals = session as unknown as {
+      handleClientMessage(socket: WebSocket, message: ClientWebSocketMessage): Promise<void>;
+    };
+    internals.handleClientMessage = vi.fn(async (_socket, message) => {
+      events.push(`${message.type}:start`);
+      if (message.type === "connect") await connectPending;
+      events.push(`${message.type}:end`);
+    });
+    const attemptId = "11111111-1111-4111-8111-111111111111";
+    const connect = JSON.stringify({
+      protocolVersion: WS_PROTOCOL_VERSION,
+      requestId: "22222222-2222-4222-8222-222222222222",
+      type: "connect",
+      attemptId,
+      terminal: { columns: 120, rows: 40, type: "xterm-256color", encoding: "utf-8" },
+    });
+    const resize = JSON.stringify({
+      protocolVersion: WS_PROTOCOL_VERSION,
+      requestId: "33333333-3333-4333-8333-333333333333",
+      type: "resize",
+      attemptId,
+      columns: 121,
+      rows: 41,
+    });
+
+    const connectOperation = session.webSocketMessage(socket, connect);
+    const resizeOperation = session.webSocketMessage(socket, resize);
+    await Promise.resolve();
+    expect(events).toEqual(["connect:start"]);
+
+    finishConnect();
+    await Promise.all([connectOperation, resizeOperation]);
+    expect(events).toEqual(["connect:start", "connect:end", "resize:start", "resize:end"]);
   });
 });
