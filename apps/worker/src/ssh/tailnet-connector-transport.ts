@@ -164,7 +164,7 @@ export class TailnetConnectorTransportFactory implements SSHTransportFactory {
   private readonly nonce: () => string;
 
   constructor(private readonly options: TailnetConnectorTransportOptions) {
-    this.fetcher = options.fetcher ?? fetch;
+    this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
     this.now = options.now ?? Date.now;
     this.nonce = options.nonce ?? (() => randomBase64Url(24));
     if (Boolean(options.accessClientId) !== Boolean(options.accessClientSecret)) {

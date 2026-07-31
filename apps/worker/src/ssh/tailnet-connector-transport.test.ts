@@ -86,6 +86,30 @@ async function expectedSignature(canonical: string): Promise<string> {
 }
 
 describe("Tailnet Connector SSH transport", () => {
+  it("binds the Workers global fetch to the correct receiver", async () => {
+    const socket = new FakeConnectorSocket();
+    const fetcher = vi.fn(function(this: unknown): Promise<Response> {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(upgraded(socket));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const factory = new TailnetConnectorTransportFactory({
+        url: "wss://connector.example.test/v1/connect",
+        hmacKey,
+        sessionId,
+        allowedPorts: new Set([22]),
+        nonce: () => nonce,
+      });
+
+      const transport = await factory.connect("100.64.0.10", 22, 1_000);
+      expect(fetcher).toHaveBeenCalledOnce();
+      await transport.close();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("opens an authenticated WSS tunnel with optional Cloudflare Access headers", async () => {
     const socket = new FakeConnectorSocket();
     const fetcher = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => upgraded(socket));
