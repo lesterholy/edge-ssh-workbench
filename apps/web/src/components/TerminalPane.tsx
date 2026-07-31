@@ -12,6 +12,7 @@ import {
   type ProfileResponse,
   type ServerHostKeyMessageSchema,
   type ServerWebSocketMessage,
+  type SessionState,
   type Settings
 } from "@edgesh/contracts";
 import { ApiError, api } from "../lib/api";
@@ -64,18 +65,26 @@ type Props = {
   t: (key: MessageKey) => string;
   onMessage: (message: ServerWebSocketMessage) => void;
   onChannel: (channel: SessionChannel | null) => void;
+  onStateChange: (state: SessionState) => void;
   onHostKey: (message: HostKeyMessage, respond: (decision: "trust_once" | "trust_and_save" | "reject") => void) => void;
   onCredentialRequired: () => void;
   onTicketIssued: () => void;
   onTicketError: (message: string) => void;
 };
 
-export function TerminalPane({ profile, connectSequence, ephemeralCredential, settings, t, onMessage, onChannel, onHostKey, onCredentialRequired, onTicketIssued, onTicketError }: Props) {
+export function TerminalPane({ profile, connectSequence, ephemeralCredential, settings, t, onMessage, onChannel, onStateChange, onHostKey, onCredentialRequired, onTicketIssued, onTicketError }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal>();
   const fitRef = useRef<FitAddon>();
   const socketRef = useRef<WebSocket>();
-  const [status, setStatus] = useState("idle");
+  const statusRef = useRef<SessionState>("idle");
+  const [status, setStatus] = useState<SessionState>("idle");
+
+  function updateStatus(nextStatus: SessionState) {
+    statusRef.current = nextStatus;
+    setStatus(nextStatus);
+    onStateChange(nextStatus);
+  }
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -97,7 +106,9 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
     observer.observe(hostRef.current);
     return () => {
       observer.disconnect();
-      socketRef.current?.close(1000, "component disposed");
+      const socket = socketRef.current;
+      socketRef.current = undefined;
+      socket?.close(1000, "component disposed");
       terminal.dispose();
     };
   }, []);
@@ -114,14 +125,19 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
   }, [settings]);
 
   useEffect(() => {
+    if (statusRef.current === "closed" || statusRef.current === "error") updateStatus("idle");
+  }, [profile?.id]);
+
+  useEffect(() => {
     const terminal = terminalRef.current;
     if (!terminal || connectSequence === 0 || !profile) return;
     let disposed = false;
+    let attemptSocket: WebSocket | undefined;
     const attemptId = crypto.randomUUID();
     let inputSequence = 0;
     terminal.clear();
     terminal.writeln(`\x1b[38;2;61;220;151m● Connecting to ${profile.username}@${profile.host}:${profile.port}\x1b[0m`);
-    setStatus("authorizing");
+    updateStatus("authorizing");
 
     void api.createTicket({
       profileId: profile.id,
@@ -143,9 +159,11 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
       url.searchParams.set("ticket", ticket.ticket);
       url.searchParams.set("protocolVersion", String(ticket.protocolVersion));
       const socket = new WebSocket(url);
+      attemptSocket = socket;
       socket.binaryType = "arraybuffer";
-      socketRef.current?.close(1000, "superseded");
+      const previousSocket = socketRef.current;
       socketRef.current = socket;
+      previousSocket?.close(1000, "superseded");
       const binaryListeners = new Set<(frame: DecodedBinaryFrame) => void>();
 
       const send = (message: Record<string, unknown>) => {
@@ -169,7 +187,8 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
       };
 
       socket.addEventListener("open", () => {
-        setStatus("ssh_handshake");
+        if (socketRef.current !== socket) return;
+        updateStatus("ssh_handshake");
         send({ type: "hello", attemptId });
         send({
           type: "connect",
@@ -188,6 +207,7 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
         });
       });
       socket.addEventListener("message", (event) => {
+        if (socketRef.current !== socket) return;
         if (event.data instanceof ArrayBuffer) {
           try {
             const frame = decodeBinaryFrame(event.data);
@@ -205,20 +225,24 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
         const message = result.data;
         onMessage(message);
         if (message.type === "output") terminal.write(message.data);
-        if (message.type === "status") setStatus(message.state);
+        if (message.type === "status") updateStatus(message.state);
         if (message.type === "error") {
           terminal.writeln(`\r\n\x1b[31m${message.message}\x1b[0m`);
-          if (message.fatal) setStatus("error");
+          if (message.fatal) updateStatus("error");
         }
         if (message.type === "host-key") {
           onHostKey(message, (decision) => send({ type: "host-key-decision", attemptId, fingerprint: message.fingerprint, decision }));
         }
       });
-      socket.addEventListener("close", () => {
-        setStatus("closed");
+      socket.addEventListener("close", (event) => {
+        if (socketRef.current !== socket) return;
+        socketRef.current = undefined;
+        if (statusRef.current !== "error") updateStatus(event.code === 1000 ? "closed" : "error");
         onChannel(null);
       });
-      socket.addEventListener("error", () => setStatus("error"));
+      socket.addEventListener("error", () => {
+        if (socketRef.current === socket) updateStatus("error");
+      });
 
       const input = terminal.onData((data) => send({ type: "input", attemptId, sequence: inputSequence++, data }));
       const resize = terminal.onResize(({ cols, rows }) => send({ type: "resize", attemptId, columns: cols, rows }));
@@ -226,11 +250,11 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
     }).catch((error) => {
       if (disposed) return;
       if (error instanceof ApiError && error.code === "PROFILE_CREDENTIAL_REQUIRED") {
-        setStatus("idle");
+        updateStatus("idle");
         onCredentialRequired();
         return;
       }
-      setStatus("error");
+      updateStatus("error");
       const message = error instanceof Error ? error.message : "Connection failed";
       onTicketError(message);
       terminal.writeln(`\r\n\x1b[31m${message}\x1b[0m`);
@@ -239,9 +263,10 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
     return () => {
       disposed = true;
       onChannel(null);
-      socketRef.current?.close(1000, "connection changed");
+      if (socketRef.current === attemptSocket) socketRef.current = undefined;
+      attemptSocket?.close(1000, "connection changed");
     };
-  }, [connectSequence, profile?.id]);
+  }, [connectSequence]);
 
   function toggleFullscreen() {
     const node = hostRef.current?.closest(".terminal-panel") as HTMLElement | null;

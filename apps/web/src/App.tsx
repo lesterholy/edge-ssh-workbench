@@ -9,6 +9,7 @@ import type {
   ServerHostKeyMessageSchema,
   ServerMetricsMessageSchema,
   ServerWebSocketMessage,
+  SessionState,
   Settings,
   Theme
 } from "@edgesh/contracts";
@@ -21,6 +22,7 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { CredentialDialog } from "./components/CredentialDialog";
 import { SecurityDialog } from "./components/SecurityDialog";
 import { api } from "./lib/api";
+import { isSessionBusy, isSessionConnecting } from "./lib/connection-state";
 import { translate } from "./lib/i18n";
 
 const TerminalPane = lazy(async () => {
@@ -60,7 +62,7 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [monitorOpen, setMonitorOpen] = useState(true);
-  const [connectionState, setConnectionState] = useState("idle");
+  const [connectionState, setConnectionState] = useState<SessionState>("idle");
   const [credentialDialogOpen, setCredentialDialogOpen] = useState(false);
   const [ephemeralCredential, setEphemeralCredential] = useState<EphemeralCredential>();
   const [credentialBusy, setCredentialBusy] = useState(false);
@@ -112,6 +114,7 @@ export default function App() {
   }
   function selectProfile(id: string) {
     setSelectedId(id);
+    setConnectionState("idle");
   }
   async function updateProfile(id: string, input: ProfileUpdateRequest) {
     const profile = await api.updateProfile(id, input);
@@ -131,22 +134,43 @@ export default function App() {
     }
     if (message.type === "error") setEvents((current) => [`${new Date().toLocaleTimeString()}  ERROR  ${message.message}`, ...current].slice(0, 200));
   }
-  function connect() {
-    if (!selected) return;
+  function beginConnection(profile: ProfileResponse) {
+    if (isSessionBusy(connectionState)) return;
+    setSelectedId(profile.id);
     setEphemeralCredential(undefined);
     setCredentialBusy(false);
     setCredentialError("");
-    if (selected.credentialPersistence === "prompt") {
+    if (profile.credentialPersistence === "prompt") {
       setCredentialDialogOpen(true);
       return;
     }
+    setConnectionState("authorizing");
     setConnectSequence((value) => value + 1);
+  }
+  function connect() {
+    if (selected) beginConnection(selected);
+  }
+  function connectProfile(id: string) {
+    const profile = profiles.find((item) => item.id === id);
+    if (profile) beginConnection(profile);
   }
   function connectWithCredential(credential: EphemeralCredential) {
     setEphemeralCredential(credential);
     setCredentialBusy(true);
     setCredentialError("");
+    setConnectionState("authorizing");
     setConnectSequence((value) => value + 1);
+  }
+  function disconnect() {
+    if (!channel) {
+      setConnectionState("closed");
+      return;
+    }
+    setConnectionState("disconnecting");
+    if (!channel.send({ type: "disconnect", attemptId: channel.attemptId })) {
+      setChannel(null);
+      setConnectionState("closed");
+    }
   }
   function closeCredentialDialog() {
     setCredentialDialogOpen(false);
@@ -169,7 +193,8 @@ export default function App() {
   if (!authenticated) return <LoginView language={settings.language} theme={settings.theme} googleLoginEnabled={googleLoginEnabled} t={t} onLanguage={setLanguage} onTheme={setTheme} onAuthenticated={(enabled) => { setTotpEnabled(enabled); setAuthenticated(true); }} />;
 
   const connected = connectionState === "connected";
-  const connecting = ["authorizing", "tcp_connecting", "ssh_handshake", "host_confirmation", "authenticating"].includes(connectionState);
+  const connectionBusy = isSessionBusy(connectionState);
+  const connecting = isSessionConnecting(connectionState);
   const gridClass = `workspace-grid${sidebarOpen ? "" : " sidebar-hidden"}${monitorOpen ? "" : " monitor-hidden"}`;
 
   return (
@@ -200,7 +225,7 @@ export default function App() {
       </header>
       {notice ? <div className="notice" role="alert">{notice}</div> : null}
       <main className={gridClass}>
-        <ProfileSidebar profiles={profiles} selectedId={selectedId} t={t} onSelect={selectProfile} onCreate={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} />
+        <ProfileSidebar profiles={profiles} selectedId={selectedId} connectionBusy={connectionBusy} t={t} onSelect={selectProfile} onConnect={connectProfile} onCreate={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} />
         <div className="center-workspace">
           <div className="connection-strip">
             <div className="connection-target">
@@ -211,8 +236,8 @@ export default function App() {
               </div>
             </div>
             <div>
-              {channel ? <button type="button" className="secondary-button compact-button" onClick={() => channel.send({ type: "disconnect", attemptId: channel.attemptId })}>{t("disconnect")}</button> : null}
-              <button type="button" className="primary-button compact-button" disabled={!selected || connecting || connected} onClick={connect}>
+              {channel && connectionBusy ? <button type="button" className="secondary-button compact-button" disabled={connectionState === "disconnecting"} onClick={disconnect}>{t("disconnect")}</button> : null}
+              <button type="button" className="primary-button compact-button" disabled={!selected || connectionBusy} onClick={connect}>
                 {connecting ? `${t("connecting")}...` : t("connect")}
               </button>
             </div>
@@ -226,6 +251,7 @@ export default function App() {
               t={t}
               onMessage={protocolMessage}
               onChannel={setChannel}
+              onStateChange={setConnectionState}
               onHostKey={(message, respond) => setHostKey({ message, respond })}
               onCredentialRequired={() => { setEphemeralCredential(undefined); setCredentialBusy(false); setCredentialError(t("credentialRequired")); setCredentialDialogOpen(true); }}
               onTicketIssued={() => { setEphemeralCredential(undefined); setCredentialBusy(false); setCredentialError(""); setCredentialDialogOpen(false); }}

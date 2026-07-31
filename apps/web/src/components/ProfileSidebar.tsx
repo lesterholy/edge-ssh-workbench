@@ -7,8 +7,10 @@ type Props = {
   profiles: ProfileResponse[];
   selectedId?: string;
   busy?: boolean;
+  connectionBusy?: boolean;
   t: (key: MessageKey) => string;
   onSelect: (id: string) => void;
+  onConnect: (id: string) => void;
   onCreate: (input: ProfileCreateRequest) => Promise<void>;
   onUpdate: (id: string, input: ProfileUpdateRequest) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -42,7 +44,7 @@ const emptyDraft = (): Draft => ({
   initialCommand: ""
 });
 
-export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCreate, onUpdate, onDelete }: Props) {
+export function ProfileSidebar({ profiles, selectedId, busy, connectionBusy, t, onSelect, onConnect, onCreate, onUpdate, onDelete }: Props) {
   const [filter, setFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string>();
@@ -160,7 +162,7 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
     <aside className="server-sidebar">
       <div className="section-heading">
         <span><Server size={17} /> {t("servers")}</span>
-        <button className="icon-button" type="button" title={t("addServer")} onClick={startCreate}><Plus size={17} /></button>
+        <button className="icon-button" type="button" title={t("addServer")} disabled={connectionBusy} onClick={startCreate}><Plus size={17} /></button>
       </div>
       <label className="search-field">
         <Search size={15} />
@@ -169,7 +171,7 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
       <div className="server-list">
         {filtered.map((profile) => (
           <div className={`server-row${selectedId === profile.id ? " selected" : ""}`} key={profile.id}>
-            <button className="server-main" type="button" onClick={() => onSelect(profile.id)}>
+            <button className="server-main" type="button" disabled={connectionBusy} onClick={() => onSelect(profile.id)}>
               <span className="server-avatar" aria-hidden="true">{(profile.name || profile.host).slice(0, 1).toUpperCase()}</span>
               <span className="server-meta">
                 <span>{profile.name}</span>
@@ -177,9 +179,9 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
               </span>
             </button>
             <div className="row-actions">
-              <button type="button" title={t("connect")} onClick={() => onSelect(profile.id)}><Plug size={14} /></button>
-              <button type="button" title={t("editServer")} onClick={() => startEdit(profile)}><Pencil size={14} /></button>
-              <button type="button" title={t("deleteServer")} onClick={() => window.confirm(t("confirmDelete")) && void onDelete(profile.id)}><Trash2 size={14} /></button>
+              <button type="button" title={t("connect")} aria-label={t("connect")} disabled={connectionBusy} onClick={() => onConnect(profile.id)}><Plug size={14} /></button>
+              <button type="button" title={t("editServer")} disabled={connectionBusy} onClick={() => startEdit(profile)}><Pencil size={14} /></button>
+              <button type="button" title={t("deleteServer")} disabled={connectionBusy} onClick={() => window.confirm(t("confirmDelete")) && void onDelete(profile.id)}><Trash2 size={14} /></button>
             </div>
           </div>
         ))}
@@ -233,7 +235,7 @@ export function ProfileSidebar({ profiles, selectedId, busy, t, onSelect, onCrea
           <input maxLength={8192} placeholder={t("initialCommand")} value={draft.initialCommand} onChange={(event) => setDraft({ ...draft, initialCommand: event.target.value })} />
           <textarea rows={2} maxLength={4000} placeholder={t("notes")} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
           {error ? <p className="form-error">{error}</p> : null}
-          <button type="submit" className="primary-button" disabled={busy}>{t("save")}</button>
+          <button type="submit" className="primary-button" disabled={busy || connectionBusy}>{t("save")}</button>
         </form>
       ) : null}
     </aside>
