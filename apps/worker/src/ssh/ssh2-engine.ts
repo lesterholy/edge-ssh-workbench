@@ -49,6 +49,19 @@ export const WORKER_SAFE_ALGORITHMS = {
     prepend: [],
     remove: ["ssh-rsa"]
   },
+  // Workers requires an AEAD auth tag before decipher.update(), while ssh2
+  // supplies the OpenSSH GCM tag after the encrypted packet body. Prefer the
+  // runtime-supported AES-CTR ciphers with SHA-2 EtM instead.
+  cipher: {
+    append: [],
+    prepend: [],
+    remove: [
+      "aes128-gcm@openssh.com",
+      "aes256-gcm@openssh.com",
+      "aes128-gcm",
+      "aes256-gcm"
+    ]
+  },
   hmac: {
     append: [],
     prepend: [],
