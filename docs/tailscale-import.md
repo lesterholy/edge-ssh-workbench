@@ -1,6 +1,6 @@
 # Importing Tailscale devices
 
-EdgeSSH can read the Tailscale device inventory and create SSH profiles in bulk. Discovery runs in the Worker: the Tailscale API token is never returned to the browser, stored in D1, or sent to the Tailnet Connector.
+EdgeSSH can read the Tailscale device inventory and create SSH profiles in bulk. Discovery runs in the Worker: the Tailscale API token is never returned by the configuration API or sent to the Tailnet Connector. A token entered in the workbench is encrypted in D1 with `CREDENTIAL_MASTER_KEY`.
 
 ## Prerequisites
 
@@ -13,14 +13,16 @@ EdgeSSH can read the Tailscale device inventory and create SSH profiles in bulk.
 
 Create an API access token in **Tailscale Admin Console -> Settings -> Keys**. Tailscale API access tokens expire after at most 90 days, so set a rotation reminder and revoke the old token after replacement.
 
-For local development, append these values to the existing ignored `.dev.vars`:
+After signing in, click the Tailscale status in the server sidebar. Enter the Tailnet name and API token, then save. The authenticated configuration endpoint accepts the token only as input, stores an AES-GCM envelope in D1, and returns only whether a token is configured. A valid `CREDENTIAL_MASTER_KEY` is required.
+
+Deployment bindings remain available as fallbacks. For local development, append these values to the existing ignored `.dev.vars`:
 
 ```dotenv
 TAILSCALE_TAILNET=example.com
 TAILSCALE_API_TOKEN=tskey-api-REPLACE_ME
 ```
 
-`TAILSCALE_TAILNET` is the tailnet organization/name accepted by the Tailscale API. It is not the `*.ts.net` DNS suffix in `TAILNET_ALLOWED_SUFFIX`; the two values can differ.
+`TAILSCALE_TAILNET` is the tailnet organization/name accepted by the Tailscale API. It is not the `*.ts.net` DNS suffix in `TAILNET_ALLOWED_SUFFIX`; the two values can differ. A saved browser configuration takes precedence over these bindings.
 
 For GitHub deployment, add `DEPLOY_TAILSCALE_TAILNET` as a `production` Environment Variable and `TAILSCALE_API_TOKEN` as a `production` Environment Secret. The workflow writes only the tailnet name into the generated Wrangler config and uploads the token as a Worker secret.
 

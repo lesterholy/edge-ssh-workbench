@@ -1,6 +1,6 @@
 # 从 Tailscale 导入设备
 
-EdgeSSH 可以读取 Tailscale 设备清单并批量创建 SSH Profile。设备发现由 Worker 执行：Tailscale API Token 不会返回浏览器、不会写入 D1，也不会发送给 Tailnet Connector。
+EdgeSSH 可以读取 Tailscale 设备清单并批量创建 SSH Profile。设备发现由 Worker 执行：配置 API 不会回传 Tailscale API Token，Token 也不会发送给 Tailnet Connector。在工作台中输入的 Token 会使用 `CREDENTIAL_MASTER_KEY` 加密后写入 D1。
 
 ## 前置条件
 
@@ -13,14 +13,16 @@ EdgeSSH 可以读取 Tailscale 设备清单并批量创建 SSH Profile。设备�
 
 在 **Tailscale Admin Console -> Settings -> Keys** 创建 API access token。Tailscale API Token 最长 90 天过期，需要设置轮换提醒；替换后及时撤销旧 Token。
 
-本地开发时，将以下内容追加到现有且被 Git 忽略的 `.dev.vars`：
+登录工作台后，点击服务器侧边栏中的 Tailscale 状态，填写 Tailnet 名称和 API Token 后保存。受认证保护的配置接口只接收 Token，不回传 Token；Worker 使用 AES-GCM 加密后写入 D1，响应只说明是否已配置。此方式要求有效的 `CREDENTIAL_MASTER_KEY`。
+
+部署绑定仍可作为回退配置。本地开发时，将以下内容追加到现有且被 Git 忽略的 `.dev.vars`：
 
 ```dotenv
 TAILSCALE_TAILNET=example.com
 TAILSCALE_API_TOKEN=tskey-api-REPLACE_ME
 ```
 
-`TAILSCALE_TAILNET` 是 Tailscale API 接受的 Tailnet 组织名/名称，不是 `TAILNET_ALLOWED_SUFFIX` 中的 `*.ts.net` DNS 后缀，两者可能不同。
+`TAILSCALE_TAILNET` 是 Tailscale API 接受的 Tailnet 组织名/名称，不是 `TAILNET_ALLOWED_SUFFIX` 中的 `*.ts.net` DNS 后缀，两者可能不同。网页保存的配置优先于这些绑定。
 
 通过 GitHub 部署时，在 `production` Environment 中添加 Variable `DEPLOY_TAILSCALE_TAILNET` 和 Secret `TAILSCALE_API_TOKEN`。Workflow 只把 Tailnet 名称写入 Wrangler 配置，并将 Token 作为 Worker Secret 上传。
 
