@@ -81,7 +81,7 @@ For Tailnet mode, `TAILNET_CONNECTOR_HMAC_KEY` must be a third independent 32-by
 
 ### GitHub and Dokploy automation
 
-The checked-in `wrangler.toml` contains public example values only. `.github/workflows/deploy-worker.yml` generates an ignored production config from validated GitHub Environment Variables, applies remote D1 migrations, and deploys the Web assets and Worker together. Connector deployment remains independent in Dokploy through `docker-compose.dokploy.yml`. Configure both systems before enabling automatic deployment; see [`docs/github-deployment.md`](docs/github-deployment.md) or the [Chinese guide](docs/github-deployment_zh.md).
+The checked-in `wrangler.toml` contains public example values only. `.github/workflows/deploy-worker.yml` generates an ignored production config from validated GitHub Environment Variables, applies remote D1 migrations, and deploys the Web assets and Worker together. Use one Worker deployment pipeline at a time; disable Cloudflare native Git Builds when this GitHub workflow owns production deployment. Connector deployment remains independent in Dokploy through `docker-compose.dokploy.yml`. Configure both systems before enabling automatic deployment; see [`docs/github-deployment.md`](docs/github-deployment.md) or the [Chinese guide](docs/github-deployment_zh.md).
 
 ## Validation
 
