@@ -1,6 +1,7 @@
 import type { ApiErrorCode, HealthResponse } from "@edgesh/contracts";
 
 import type { Env } from "../env";
+import { getRuntimeConfig } from "../env";
 import {
   assertRequestOrigin,
   httpsRedirect,
@@ -19,6 +20,7 @@ import { requestId } from "./request";
 import { apiError, apiJson, httpErrorResponse } from "./response";
 import { routeSettings } from "./settings";
 import { createSshTicket, upgradeSsh } from "./ssh";
+import { routeTailscale } from "./tailscale";
 
 const APP_VERSION = "0.1.0";
 
@@ -26,12 +28,25 @@ function health(env: Env): Response {
   const bindings = {
     d1: Boolean(env.DB),
     r2: Boolean(env.FILES),
-    durableObjects: Boolean(env.SSH_SESSIONS) && Boolean(env.AUTH_LIMITER),
+    durableObjects: Boolean(env.SSH_SESSIONS)
+      && Boolean(env.SSH_SESSION_REGISTRY)
+      && Boolean(env.AUTH_LIMITER),
   };
   const secretsReady = env.APP_ENV !== "production"
     || Boolean(env.ADMIN_PASSWORD_HASH && env.CREDENTIAL_MASTER_KEY && env.SESSION_HMAC_KEY);
+  let runtimeReady = true;
+  try {
+    getRuntimeConfig(env);
+  } catch {
+    runtimeReady = false;
+  }
   const result: HealthResponse = {
-    status: Object.values(bindings).every(Boolean) && secretsReady ? "ok" : "degraded",
+    status: Object.values(bindings).every(Boolean)
+      && Boolean(env.ASSETS)
+      && secretsReady
+      && runtimeReady
+      ? "ok"
+      : "degraded",
     version: APP_VERSION,
     runtime: "cloudflare-workers",
     timestamp: new Date().toISOString(),
@@ -58,6 +73,7 @@ async function apiRoute(
     return routeProfiles(request, env, path);
   }
   if (path.startsWith("/api/history/")) return routeHistory(request, env, path);
+  if (path.startsWith("/api/tailscale/")) return routeTailscale(request, env, path);
   if (path === "/api/ssh/tickets") return createSshTicket(request, env, currentRequestId);
   throw new HttpError(404, "NOT_FOUND", "Route not found");
 }

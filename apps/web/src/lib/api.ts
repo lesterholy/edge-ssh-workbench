@@ -16,7 +16,10 @@ import type {
   TotpDisableResponse,
   TotpEnrollmentConfirmRequest,
   TotpEnrollmentConfirmResponse,
-  TotpEnrollmentStartResponse
+  TotpEnrollmentStartResponse,
+  TailscaleDeviceListResponse,
+  TailscaleImportRequest,
+  TailscaleImportResponse
 } from "@edgesh/contracts";
 
 export class ApiError extends Error {
@@ -89,5 +92,12 @@ export const api = {
   commandHistory: (query = "") =>
     request<CommandHistoryResponse>(`/api/history/commands?limit=50${query ? `&query=${encodeURIComponent(query)}` : ""}`),
   clearCommandHistory: () =>
-    request<void>("/api/history/commands", { method: "DELETE", body: JSON.stringify({}) })
+    request<void>("/api/history/commands", { method: "DELETE", body: JSON.stringify({}) }),
+  tailscaleDevices: () =>
+    request<TailscaleDeviceListResponse>("/api/tailscale/devices"),
+  tailscaleImport: (input: TailscaleImportRequest) =>
+    request<TailscaleImportResponse>("/api/tailscale/import", {
+      method: "POST",
+      body: JSON.stringify(input)
+    })
 };

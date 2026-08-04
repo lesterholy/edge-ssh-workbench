@@ -40,6 +40,7 @@ jobs:
       DEPLOY_R2_BUCKET_NAME: ${{ vars.DEPLOY_R2_BUCKET_NAME }}
       DEPLOY_TAILNET_CONNECTOR_URL: ${{ vars.DEPLOY_TAILNET_CONNECTOR_URL }}
       DEPLOY_ALLOWED_SSH_PORTS: ${{ vars.DEPLOY_ALLOWED_SSH_PORTS }}
+      DEPLOY_TAILSCALE_TAILNET: ${{ vars.DEPLOY_TAILSCALE_TAILNET }}
 
     steps:
       - name: Check out repository
@@ -75,20 +76,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Deploy Web assets and Worker
-        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config .wrangler.production.toml
-          secrets: |
-            ADMIN_PASSWORD_HASH
-            CREDENTIAL_MASTER_KEY
-            SESSION_HMAC_KEY
-            GOOGLE_CLIENT_SECRET
-            TAILNET_CONNECTOR_HMAC_KEY
-            TAILNET_CONNECTOR_ACCESS_CLIENT_ID
-            TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET
+      - name: Select configured Worker secrets
+        id: worker-secrets
+        shell: bash
         env:
           ADMIN_PASSWORD_HASH: ${{ secrets.ADMIN_PASSWORD_HASH }}
           CREDENTIAL_MASTER_KEY: ${{ secrets.CREDENTIAL_MASTER_KEY }}
@@ -97,3 +87,53 @@ jobs:
           TAILNET_CONNECTOR_HMAC_KEY: ${{ secrets.TAILNET_CONNECTOR_HMAC_KEY }}
           TAILNET_CONNECTOR_ACCESS_CLIENT_ID: ${{ secrets.TAILNET_CONNECTOR_ACCESS_CLIENT_ID }}
           TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET: ${{ secrets.TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET }}
+          TAILSCALE_API_TOKEN: ${{ secrets.TAILSCALE_API_TOKEN }}
+        run: |
+          required=(ADMIN_PASSWORD_HASH CREDENTIAL_MASTER_KEY SESSION_HMAC_KEY TAILNET_CONNECTOR_HMAC_KEY)
+          optional=(GOOGLE_CLIENT_SECRET TAILNET_CONNECTOR_ACCESS_CLIENT_ID TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET TAILSCALE_API_TOKEN)
+          names=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::$name is required"
+              exit 1
+            fi
+            names+=("$name")
+          done
+          if [[ -n "$DEPLOY_GOOGLE_CLIENT_ID" && -z "$GOOGLE_CLIENT_SECRET" ]]; then
+            echo "::error::GOOGLE_CLIENT_SECRET is required when Google OIDC is configured"
+            exit 1
+          fi
+          if [[ -n "$DEPLOY_TAILSCALE_TAILNET" && -z "$TAILSCALE_API_TOKEN" ]]; then
+            echo "::error::TAILSCALE_API_TOKEN is required when Tailscale import is configured"
+            exit 1
+          fi
+          if { [[ -n "$TAILNET_CONNECTOR_ACCESS_CLIENT_ID" ]] && [[ -z "$TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET" ]]; } \
+            || { [[ -z "$TAILNET_CONNECTOR_ACCESS_CLIENT_ID" ]] && [[ -n "$TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET" ]]; }; then
+            echo "::error::Tailnet Connector Access credentials must be configured together"
+            exit 1
+          fi
+          for name in "${optional[@]}"; do
+            if [[ -n "${!name}" ]]; then names+=("$name"); fi
+          done
+          {
+            echo "names<<EOF"
+            printf '%s\n' "${names[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Web assets and Worker
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config .wrangler.production.toml
+          secrets: ${{ steps.worker-secrets.outputs.names }}
+        env:
+          ADMIN_PASSWORD_HASH: ${{ secrets.ADMIN_PASSWORD_HASH }}
+          CREDENTIAL_MASTER_KEY: ${{ secrets.CREDENTIAL_MASTER_KEY }}
+          SESSION_HMAC_KEY: ${{ secrets.SESSION_HMAC_KEY }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          TAILNET_CONNECTOR_HMAC_KEY: ${{ secrets.TAILNET_CONNECTOR_HMAC_KEY }}
+          TAILNET_CONNECTOR_ACCESS_CLIENT_ID: ${{ secrets.TAILNET_CONNECTOR_ACCESS_CLIENT_ID }}
+          TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET: ${{ secrets.TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET }}
+          TAILSCALE_API_TOKEN: ${{ secrets.TAILSCALE_API_TOKEN }}

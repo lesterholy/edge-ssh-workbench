@@ -50,6 +50,8 @@ The generated file sets `APP_ENV=development`, overriding the production default
 
 Google login is optional. It is shown only when all four `GOOGLE_*` bindings are present. See [`docs/google-oauth.md`](docs/google-oauth.md) for Google Console, local callback, allowlist and Cloudflare deployment steps. Password login remains enabled as the recovery path.
 
+Tailscale device import is optional. Configure `TAILSCALE_TAILNET` and the Worker secret `TAILSCALE_API_TOKEN` to discover authorized Tailnet devices and create up to 50 SSH profiles at once. The token never reaches the browser. See [`docs/tailscale-import.md`](docs/tailscale-import.md) or the [Chinese guide](docs/tailscale-import_zh.md).
+
 The checked-in production example uses `SSH_TRANSPORT=tailnet_connector`, while `.dev.vars.example` overrides local development to `direct`. Direct mode uses Cloudflare TCP sockets and accepts only public targets. To reach VPS hosts through a Tailnet, build and deploy the separate Connector with `npm run build:connector`. Do not make a local Connector listen on a public interface. The complete setup and usage sequence is in [`docs/tailnet-connector.md`](docs/tailnet-connector.md).
 
 ## Cloudflare resources
@@ -70,6 +72,7 @@ npx wrangler secret put ADMIN_PASSWORD_HASH --config .wrangler.production.toml
 npx wrangler secret put CREDENTIAL_MASTER_KEY --config .wrangler.production.toml
 npx wrangler secret put SESSION_HMAC_KEY --config .wrangler.production.toml
 npx wrangler secret put GOOGLE_CLIENT_SECRET --config .wrangler.production.toml
+npx wrangler secret put TAILSCALE_API_TOKEN --config .wrangler.production.toml
 ```
 
 The required formats are shown in `.dev.vars.example`. `CREDENTIAL_MASTER_KEY` and `SESSION_HMAC_KEY` are independent base64url-encoded 32-byte values. Omit `GOOGLE_CLIENT_SECRET` when Google login is not enabled.

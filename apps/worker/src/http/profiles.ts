@@ -7,6 +7,8 @@ import {
 } from "@edgesh/contracts";
 
 import type { Env } from "../env";
+import { getRuntimeConfig } from "../env";
+import { assertAllowedSshPort } from "../security/network";
 import { ProfileRepository } from "../storage/profiles";
 import { requireAuthentication } from "./auth";
 import { HttpError, methodNotAllowed } from "./errors";
@@ -18,12 +20,6 @@ function parseProfileId(value: string): string {
   const result = EntityIdSchema.safeParse(decoded);
   if (!result.success) throw new HttpError(400, "VALIDATION_FAILED", "Invalid profile identifier");
   return result.data;
-}
-
-function cursorOffset(cursor: string | undefined): number {
-  if (cursor === undefined) return 0;
-  if (!/^\d{1,6}$/.test(cursor)) throw new HttpError(400, "VALIDATION_FAILED", "Invalid profile cursor");
-  return Number(cursor);
 }
 
 function needsMasterKeyForUpdate(credential: ProfileUpdateRequest["credential"]): boolean {
@@ -46,21 +42,26 @@ function assertTailscaleSshProfile(env: Env, method: string, port: number): void
 
 async function listProfiles(request: Request, env: Env, ownerId: string): Promise<Response> {
   const query = parseQuery(new URL(request.url), PageRequestSchema);
-  const offset = cursorOffset(query.cursor);
-  const requested = Math.min(500, offset + query.limit + 1);
-  const profiles = await new ProfileRepository(env.DB, env.CREDENTIAL_MASTER_KEY).list(ownerId, requested);
-  const items = profiles.slice(offset, offset + query.limit);
-  const hasMore = profiles.length > offset + query.limit;
-  return apiJson({
-    items,
-    page: { nextCursor: hasMore ? String(offset + query.limit) : null, hasMore },
-  });
+  try {
+    const page = await new ProfileRepository(env.DB, env.CREDENTIAL_MASTER_KEY)
+      .listPage(ownerId, query.limit, query.cursor);
+    return apiJson({
+      items: page.items,
+      page: { nextCursor: page.nextCursor, hasMore: page.hasMore },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid pagination cursor") {
+      throw new HttpError(400, "VALIDATION_FAILED", "Invalid profile cursor");
+    }
+    throw error;
+  }
 }
 
 async function createProfile(request: Request, env: Env, ownerId: string): Promise<Response> {
   const input = await parseJson(request, ProfileCreateRequestSchema);
   const credential = input.credential;
   assertTailscaleSshProfile(env, credential.method, input.port);
+  assertAllowedSshPort(input.port, getRuntimeConfig(env).allowedSshPorts);
   const storesSecret = credential.method === "tailscale_ssh" ? false
     : credential.method === "password"
       ? credential.persistence === "saved"
@@ -90,6 +91,7 @@ async function updateProfile(request: Request, env: Env, ownerId: string, profil
   const nextMethod = input.credential?.method ?? existing.authenticationMethod;
   const nextPort = input.port ?? existing.port;
   assertTailscaleSshProfile(env, nextMethod, nextPort);
+  assertAllowedSshPort(nextPort, getRuntimeConfig(env).allowedSshPorts);
   if (input.credential?.method !== "tailscale_ssh" && input.credential?.persistence === "saved") {
     const secret = input.credential.method === "password"
       ? input.credential.password

@@ -5,5 +5,6 @@ export * from "./history";
 export * from "./profiles";
 export * from "./settings";
 export * from "./tailnet";
+export * from "./tailscale";
 export * from "./tickets";
 export * from "./websocket";

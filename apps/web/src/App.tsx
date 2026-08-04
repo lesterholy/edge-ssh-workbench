@@ -11,6 +11,7 @@ import type {
   ServerWebSocketMessage,
   SessionState,
   Settings,
+  TailscaleImportResponse,
   Theme
 } from "@edgesh/contracts";
 import { LoginView } from "./components/LoginView";
@@ -21,6 +22,7 @@ import { FileWorkspace } from "./components/FileWorkspace";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { CredentialDialog } from "./components/CredentialDialog";
 import { SecurityDialog } from "./components/SecurityDialog";
+import { TailscaleImportDialog } from "./components/TailscaleImportDialog";
 import { api } from "./lib/api";
 import { isSessionBusy, isSessionConnecting } from "./lib/connection-state";
 import { translate } from "./lib/i18n";
@@ -82,6 +84,8 @@ export default function App() {
   const [credentialBusy, setCredentialBusy] = useState(false);
   const [credentialError, setCredentialError] = useState("");
   const [securityDialogOpen, setSecurityDialogOpen] = useState(false);
+  const [tailscaleImportOpen, setTailscaleImportOpen] = useState(false);
+  const [tailscaleRefreshSignal, setTailscaleRefreshSignal] = useState(0);
   const selected = profiles.find((profile) => profile.id === selectedId);
   const t = useMemo(() => translate(settings.language), [settings.language]);
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSize(Number(localStorage.getItem("edgesh.sidebarWidth")) || 288, MIN_SIDEBAR_W, MAX_SIDEBAR_W));
@@ -193,6 +197,12 @@ export default function App() {
     await api.deleteProfile(id);
     setProfiles((current) => current.filter((profile) => profile.id !== id));
     if (selectedId === id) setSelectedId(undefined);
+  }
+  function handleTailscaleImport(response: TailscaleImportResponse) {
+    setProfiles((current) => [...response.created, ...current]);
+    if (response.created.length > 0 && !selectedId) {
+      setSelectedId(response.created[0]!.id);
+    }
   }
   function protocolMessage(message: ServerWebSocketMessage) {
     setLastMessage(message);
@@ -376,7 +386,7 @@ export default function App() {
           />
         ) : null}
 
-        <ProfileSidebar profiles={profiles} selectedId={selectedId} connectionBusy={connectionBusy} t={t} onSelect={selectProfile} onConnect={connectProfile} onCreate={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} />
+        <ProfileSidebar profiles={profiles} selectedId={selectedId} connectionBusy={connectionBusy} t={t} onSelect={selectProfile} onConnect={connectProfile} onCreate={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} onTailscaleImportOpen={() => setTailscaleImportOpen(true)} tailscaleRefreshSignal={tailscaleRefreshSignal} />
         <div className="center-workspace" ref={centerRef}>
           <div
             className="resize-handle resize-handle-h resize-handle-bottom"
@@ -457,6 +467,7 @@ export default function App() {
         </div>
       ) : null}
       {credentialDialogOpen && selected ? <CredentialDialog profile={selected} busy={credentialBusy} requestError={credentialError} t={t} onCancel={closeCredentialDialog} onSubmit={connectWithCredential} /> : null}
+      {tailscaleImportOpen ? <TailscaleImportDialog t={t} onClose={() => { setTailscaleImportOpen(false); setTailscaleRefreshSignal((value) => value + 1); }} onImported={handleTailscaleImport} /> : null}
       {securityDialogOpen ? <SecurityDialog enabled={totpEnabled} t={t} onClose={() => setSecurityDialogOpen(false)} onChanged={setTotpEnabled} /> : null}
     </div>
   );

@@ -9,6 +9,7 @@ __dirname = '""'
 __filename = '""'
 
 [alias]
+"cpu-features" = "./apps/worker/shims/cpu-features/index.js"
 "./crypto/build/Release/sshcrypto.node" = "./apps/worker/shims/sshcrypto-unavailable.cjs"
 
 [assets]
@@ -31,6 +32,8 @@ TAILNET_CONNECTOR_URL = "https://ssh-connector.example.com/v1/connect"
 GOOGLE_CLIENT_ID = "example.apps.googleusercontent.com"
 GOOGLE_REDIRECT_URI = "https://app.example.com/api/auth/google/callback"
 GOOGLE_ALLOWED_EMAILS = "admin@example.com"
+# Optional Tailscale device discovery. Keep TAILSCALE_API_TOKEN in Worker secrets.
+TAILSCALE_TAILNET = "example.com"
 
 [[d1_databases]]
 binding = "DB"

@@ -26,6 +26,8 @@ export interface Env {
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
   GOOGLE_ALLOWED_EMAILS?: string;
+  TAILSCALE_TAILNET?: string;
+  TAILSCALE_API_TOKEN?: string;
 }
 
 export interface TailnetConnectorConfig {

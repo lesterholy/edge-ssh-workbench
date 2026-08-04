@@ -15,6 +15,89 @@ describe("storage helpers", () => {
     expect(() => decodeTimeCursor("not-a-cursor")).toThrow("Invalid pagination cursor");
   });
 
+  it("uses keyset pagination for profiles without a 500-row ceiling", async () => {
+    const first = {
+      id: "11111111-1111-4111-8111-111111111111",
+      owner_id: "22222222-2222-4222-8222-222222222222",
+      name: "First", host: "first.example.test", port: 22, username: "root",
+      auth_kind: "password", tailscale_ssh: 0, credential_persistence: "prompt", notes: "", initial_command: null,
+      terminal_type: "xterm-256color", encoding: "utf-8", collect_history: 1,
+      password_ciphertext: null, password_iv: null, password_version: null,
+      private_key_ciphertext: null, private_key_iv: null, private_key_version: null,
+      passphrase_ciphertext: null, passphrase_iv: null, passphrase_version: null,
+      last_connected_at: null, last_connected_username: null, last_host_fingerprint: null,
+      created_at: "2026-08-04T04:00:00.000Z", updated_at: "2026-08-04T04:00:00.000Z",
+    };
+    const second = {
+      ...first,
+      id: "00000000-0000-4000-8000-000000000000",
+      name: "Second",
+      host: "second.example.test",
+      updated_at: "2026-08-04T03:00:00.000Z",
+    };
+    let sql = "";
+    let bindings: unknown[] = [];
+    const database = {
+      prepare: (statement: string) => {
+        sql = statement;
+        return {
+          bind: (...values: unknown[]) => {
+            bindings = values;
+            return { all: async () => ({ results: [first, second] }) };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const page = await new ProfileRepository(database).listPage(first.owner_id, 1);
+
+    expect(page.items).toHaveLength(1);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).not.toBeNull();
+    expect(sql).toContain("ORDER BY updated_at DESC, id DESC LIMIT ?");
+    expect(bindings).toEqual([first.owner_id, 2]);
+    expect(decodeTimeCursor(page.nextCursor ?? undefined)).toEqual({
+      createdAt: first.updated_at,
+      id: first.id,
+    });
+  });
+
+  it("checks imported targets by selected hosts without truncating the profile table", async () => {
+    let sql = "";
+    let bindings: unknown[] = [];
+    const database = {
+      prepare: (statement: string) => {
+        sql = statement;
+        return {
+          bind: (...values: unknown[]) => {
+            bindings = values;
+            return {
+              all: async () => ({ results: [{
+                host: "alpha.example-tailnet.ts.net",
+                port: 22,
+                username: "root",
+              }] }),
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const targets = await new ProfileRepository(database).listTargetsByHosts(
+      "22222222-2222-4222-8222-222222222222",
+      ["alpha.example-tailnet.ts.net", "beta.example-tailnet.ts.net"],
+    );
+
+    expect(targets).toEqual([{ host: "alpha.example-tailnet.ts.net", port: 22, username: "root" }]);
+    expect(sql).toContain("host IN (?, ?)");
+    expect(sql).not.toContain("LIMIT");
+    expect(bindings).toEqual([
+      "22222222-2222-4222-8222-222222222222",
+      "alpha.example-tailnet.ts.net",
+      "beta.example-tailnet.ts.net",
+    ]);
+  });
+
   it("irreversibly redacts common credential forms", () => {
     expect(redactCommand("curl --token abc123 https://example.test")).toBe("curl --token [REDACTED] https://example.test");
     expect(redactCommand("export API_KEY=abc123")).toBe("export API_KEY=[REDACTED]");

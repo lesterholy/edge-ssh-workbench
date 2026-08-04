@@ -71,10 +71,15 @@ export function HistoryPanel({ t, connected, channel, profile, message }: Props)
     setBashError("");
   }
 
-  function clear() {
+  async function clear() {
     if (!window.confirm(`${t("clear")} ${t("history")}?`)) return;
-    void api.clearCommandHistory();
-    setItems((current) => current.filter((item) => item.source === "bash"));
+    try {
+      setError("");
+      await api.clearCommandHistory();
+      setItems((current) => current.filter((item) => item.source === "bash"));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to clear history");
+    }
   }
 
   useEffect(() => {

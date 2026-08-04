@@ -42,6 +42,19 @@ export function FileWorkspace({ channel, message, t }: Props) {
 
   useEffect(() => { refresh(); }, [channel?.sessionId, path]);
   useEffect(() => {
+    if (channel) return;
+    setEntries([]);
+    setActive(undefined);
+    setContent("");
+    setLoadedMeta(undefined);
+    setStatus("");
+    setPath(".");
+    pendingReadRequest.current = undefined;
+    pendingWrite.current = undefined;
+    listRequests.current.clear();
+    download.current = undefined;
+  }, [channel]);
+  useEffect(() => {
     if (!message) return;
     if (message.type === "file-result") {
       if (message.operation === "list") {
@@ -122,18 +135,21 @@ export function FileWorkspace({ channel, message, t }: Props) {
 
   const parent = useMemo(() => path === "." || path === "/" ? path : path.replace(/\/[^/]+\/?$/, "") || "/", [path]);
   function open(entry: SftpEntry) {
+    if (!channel) return;
     if (entry.kind === "directory") {
       setPath(entry.path);
       setActive(undefined);
       setContent("");
     } else if (entry.kind === "file") {
-      setActive(entry);
-      setStatus(t("loading"));
-      pendingReadRequest.current = send({
+      const requestId = send({
         type: "sftp-read",
         path: entry.path,
         maxBytes: 2 * 1024 * 1024,
-      }) ?? undefined;
+      });
+      if (!requestId) return;
+      setActive(entry);
+      setStatus(t("loading"));
+      pendingReadRequest.current = requestId;
     }
   }
   function createFolder() {
@@ -155,8 +171,10 @@ export function FileWorkspace({ channel, message, t }: Props) {
       expectedSize: loadedMeta.size,
       expectedModifiedAt: loadedMeta.modifiedAt,
     });
-    if (requestId) pendingWrite.current = { requestId, bytes };
-    setStatus(t("loading"));
+    if (requestId) {
+      pendingWrite.current = { requestId, bytes };
+      setStatus(t("loading"));
+    }
   }
   function downloadFile() {
     if (!active) return;

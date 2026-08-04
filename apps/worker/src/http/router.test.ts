@@ -34,6 +34,29 @@ describe("Worker HTTP router", () => {
     });
   });
 
+  it("reports degraded health when the SSH session registry binding is missing", async () => {
+    const response = await routeRequest(new Request("https://workbench.test/api/health"), testEnv({
+      SSH_SESSION_REGISTRY: undefined,
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "degraded",
+      bindings: { durableObjects: false },
+    });
+  });
+
+  it("reports degraded health when the configured SSH transport is incomplete", async () => {
+    const response = await routeRequest(new Request("https://workbench.test/api/health"), testEnv({
+      SSH_TRANSPORT: "tailnet_connector",
+      TAILNET_CONNECTOR_URL: "https://connector.example.test/v1/connect",
+      TAILNET_CONNECTOR_HMAC_KEY: undefined,
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "degraded" });
+  });
+
   it("returns contract-shaped JSON for an unknown API route", async () => {
     const response = await routeRequest(new Request("https://workbench.test/api/missing"), testEnv());
     const body = await response.json() as { error: Record<string, unknown> };

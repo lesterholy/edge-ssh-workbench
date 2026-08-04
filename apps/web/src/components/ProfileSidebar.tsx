@@ -1,7 +1,8 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Eye, EyeOff, Pencil, Plug, Plus, Search, Server, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, Import, Pencil, Plug, Plus, Search, Server, Trash2, X } from "lucide-react";
 import type { ProfileCreateRequest, ProfileResponse, ProfileUpdateRequest } from "@edgesh/contracts";
 import type { MessageKey } from "../lib/i18n";
+import { TailscaleStatusBadge } from "./TailscaleStatusBadge";
 
 type Props = {
   profiles: ProfileResponse[];
@@ -14,6 +15,8 @@ type Props = {
   onCreate: (input: ProfileCreateRequest) => Promise<void>;
   onUpdate: (id: string, input: ProfileUpdateRequest) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onTailscaleImportOpen?: () => void;
+  tailscaleRefreshSignal?: number;
 };
 
 type Draft = {
@@ -44,7 +47,7 @@ const emptyDraft = (): Draft => ({
   initialCommand: ""
 });
 
-export function ProfileSidebar({ profiles, selectedId, busy, connectionBusy, t, onSelect, onConnect, onCreate, onUpdate, onDelete }: Props) {
+export function ProfileSidebar({ profiles, selectedId, busy, connectionBusy, t, onSelect, onConnect, onCreate, onUpdate, onDelete, onTailscaleImportOpen, tailscaleRefreshSignal }: Props) {
   const [filter, setFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string>();
@@ -163,7 +166,9 @@ export function ProfileSidebar({ profiles, selectedId, busy, connectionBusy, t, 
       <div className="section-heading">
         <span><Server size={17} /> {t("servers")}</span>
         <button className="icon-button" type="button" title={t("addServer")} disabled={connectionBusy} onClick={startCreate}><Plus size={17} /></button>
+        <button className="icon-button" type="button" title={t("importFromTailscale")} disabled={connectionBusy} onClick={() => onTailscaleImportOpen?.()}><Import size={17} /></button>
       </div>
+      <TailscaleStatusBadge t={t} refreshSignal={tailscaleRefreshSignal} onOpenImport={onTailscaleImportOpen} />
       <label className="search-field">
         <Search size={15} />
         <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("filterServers")} />

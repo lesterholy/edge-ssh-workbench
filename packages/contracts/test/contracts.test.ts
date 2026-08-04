@@ -12,6 +12,8 @@ import {
   ServerTransferProgressMessageSchema,
   SettingsPatchRequestSchema,
   TAILNET_CONNECTOR_PROTOCOL_VERSION,
+  TailscaleDeviceListResponseSchema,
+  TailscaleImportRequestSchema,
   TailnetConnectorHandshakeSchema,
   canonicalizeTailnetConnectorHandshake,
   WS_PROTOCOL_VERSION,
@@ -248,5 +250,33 @@ describe("public contracts", () => {
     expect(canonicalizeTailnetConnectorHandshake(handshake)).toBe(
       '[1,"cc6f137f-5da4-44cf-a5a4-8e017ecb7a77","web-1.example-tailnet.ts.net",22,1785283230000,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]',
     );
+  });
+
+  it("validates bounded Tailscale discovery and bulk import contracts", () => {
+    expect(TailscaleDeviceListResponseSchema.safeParse({
+      tailnet: "example.com",
+      devices: [{
+        id: "device-1",
+        name: "alpha",
+        host: "alpha.tail1234.ts.net",
+        addresses: ["100.64.0.1"],
+        os: "linux",
+        authorized: true,
+        online: true,
+        lastSeen: now,
+      }],
+    }).success).toBe(true);
+    expect(TailscaleImportRequestSchema.safeParse({
+      deviceIds: ["device-1", "device-1"],
+      username: "root",
+      port: 22,
+      authenticationMethod: "tailscale_ssh",
+    }).success).toBe(false);
+    expect(TailscaleImportRequestSchema.safeParse({
+      deviceIds: ["device-1"],
+      username: "root",
+      port: 7022,
+      authenticationMethod: "tailscale_ssh",
+    }).success).toBe(false);
   });
 });

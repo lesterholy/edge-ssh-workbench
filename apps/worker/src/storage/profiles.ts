@@ -3,6 +3,7 @@ import type { ProfileCreateRequest, ProfileUpdateRequest } from "@edgesh/contrac
 import { decryptSecret, encryptSecret, type EncryptedEnvelope, type SecretField } from "../security/envelope";
 import { assertAllowedSshPort, normalizeHost } from "../security/network";
 import { asBoolean, assertOwnerId, assertRecordId, createId, nowIso, toInteger } from "./internal";
+import { decodeTimeCursor, encodeTimeCursor } from "./pagination";
 
 export type ProfileAuthKind = "password" | "private_key" | "tailscale_ssh";
 export type CredentialPersistence = "saved" | "prompt" | "none";
@@ -41,6 +42,18 @@ export interface ProfileCredentials {
   password?: string;
   privateKey?: string;
   passphrase?: string;
+}
+
+export interface ProfilePage {
+  items: ProfileView[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface ProfileTarget {
+  host: string;
+  port: number;
+  username: string;
 }
 
 export interface CreateProfileInput {
@@ -180,6 +193,47 @@ export class ProfileRepository {
     const result = await this.db.prepare("SELECT * FROM profiles WHERE owner_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?")
       .bind(ownerId, bounded).all<ProfileRow>();
     return result.results.map(toView);
+  }
+
+  async listPage(ownerId: string, limit = 50, cursorValue?: string): Promise<ProfilePage> {
+    assertOwnerId(ownerId);
+    const bounded = Math.min(Math.max(Math.trunc(limit), 1), 100);
+    const cursor = decodeTimeCursor(cursorValue);
+    const clauses = ["owner_id = ?"];
+    const bindings: unknown[] = [ownerId];
+    if (cursor) {
+      clauses.push("(updated_at < ? OR (updated_at = ? AND id < ?))");
+      bindings.push(cursor.createdAt, cursor.createdAt, cursor.id);
+    }
+    const result = await this.db.prepare(
+      `SELECT * FROM profiles WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT ?`,
+    ).bind(...bindings, bounded + 1).all<ProfileRow>();
+    const hasMore = result.results.length > bounded;
+    const rows = result.results.slice(0, bounded);
+    const last = rows[rows.length - 1];
+    return {
+      items: rows.map(toView),
+      hasMore,
+      nextCursor: hasMore && last
+        ? encodeTimeCursor({ createdAt: last.updated_at, id: last.id })
+        : null,
+    };
+  }
+
+  async listTargetsByHosts(ownerId: string, hosts: readonly string[]): Promise<ProfileTarget[]> {
+    assertOwnerId(ownerId);
+    const normalizedHosts = [...new Set(hosts.map(normalizeHost))];
+    if (!normalizedHosts.length) return [];
+    if (normalizedHosts.length > 50) throw new Error("Too many profile target hosts");
+    const placeholders = normalizedHosts.map(() => "?").join(", ");
+    const result = await this.db.prepare(
+      `SELECT host, port, username FROM profiles WHERE owner_id = ? AND host IN (${placeholders})`,
+    ).bind(ownerId, ...normalizedHosts).all<ProfileTarget>();
+    return result.results.map((target) => ({
+      host: normalizeHost(target.host),
+      port: target.port,
+      username: target.username,
+    }));
   }
 
   async get(ownerId: string, profileId: string): Promise<ProfileView | null> {

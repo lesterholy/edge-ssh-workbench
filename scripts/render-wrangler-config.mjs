@@ -13,6 +13,15 @@ function required(name, maxLength = 2048) {
   return value;
 }
 
+function optional(name, maxLength = 2048) {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+  if (value.length > maxLength || /[\r\n\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error(`${name} is invalid`);
+  }
+  return value;
+}
+
 function deploymentName(name) {
   const value = required(name, 64);
   if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(value)) {
@@ -42,7 +51,8 @@ function connectorUrl() {
 }
 
 function googleClientId() {
-  const value = required("DEPLOY_GOOGLE_CLIENT_ID", 512);
+  const value = optional("DEPLOY_GOOGLE_CLIENT_ID", 512);
+  if (!value) return undefined;
   if (!/^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$/.test(value)) {
     throw new Error("DEPLOY_GOOGLE_CLIENT_ID must be a Google Web client ID");
   }
@@ -50,7 +60,8 @@ function googleClientId() {
 }
 
 function allowedEmails() {
-  const value = required("DEPLOY_GOOGLE_ALLOWED_EMAILS", 8192);
+  const value = optional("DEPLOY_GOOGLE_ALLOWED_EMAILS", 8192);
+  if (!value) return undefined;
   const emails = value.split(",").map((email) => email.trim().toLowerCase());
   if (emails.some((email) => !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email))) {
     throw new Error("DEPLOY_GOOGLE_ALLOWED_EMAILS must contain comma-separated email addresses");
@@ -77,16 +88,39 @@ function allowedPorts() {
   return [...new Set(ports)].join(",");
 }
 
+function tailscaleTailnet() {
+  const value = optional("DEPLOY_TAILSCALE_TAILNET", 256);
+  if (!value) return undefined;
+  if (value !== "-" && !/^[A-Za-z0-9](?:[A-Za-z0-9.@_+-]{0,254}[A-Za-z0-9])?$/.test(value)) {
+    throw new Error("DEPLOY_TAILSCALE_TAILNET is invalid");
+  }
+  return value;
+}
+
 const config = parse(await readFile(sourcePath, "utf8"));
 const origin = appOrigin();
+const googleId = googleClientId();
+const googleEmails = allowedEmails();
+if (Boolean(googleId) !== Boolean(googleEmails)) {
+  throw new Error("DEPLOY_GOOGLE_CLIENT_ID and DEPLOY_GOOGLE_ALLOWED_EMAILS must be configured together");
+}
 config.name = deploymentName("DEPLOY_WORKER_NAME");
 config.vars.ALLOWED_ORIGINS = origin;
 config.vars.ALLOWED_SSH_PORTS = allowedPorts();
 config.vars.SSH_TRANSPORT = "tailnet_connector";
 config.vars.TAILNET_CONNECTOR_URL = connectorUrl();
-config.vars.GOOGLE_CLIENT_ID = googleClientId();
-config.vars.GOOGLE_REDIRECT_URI = `${origin}/api/auth/google/callback`;
-config.vars.GOOGLE_ALLOWED_EMAILS = allowedEmails();
+if (googleId && googleEmails) {
+  config.vars.GOOGLE_CLIENT_ID = googleId;
+  config.vars.GOOGLE_REDIRECT_URI = `${origin}/api/auth/google/callback`;
+  config.vars.GOOGLE_ALLOWED_EMAILS = googleEmails;
+} else {
+  delete config.vars.GOOGLE_CLIENT_ID;
+  delete config.vars.GOOGLE_REDIRECT_URI;
+  delete config.vars.GOOGLE_ALLOWED_EMAILS;
+}
+const tailnet = tailscaleTailnet();
+if (tailnet) config.vars.TAILSCALE_TAILNET = tailnet;
+else delete config.vars.TAILSCALE_TAILNET;
 
 const database = config.d1_databases.find((binding) => binding.binding === "DB");
 if (!database) throw new Error("wrangler.toml is missing the DB binding");

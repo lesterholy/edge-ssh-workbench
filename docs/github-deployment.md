@@ -21,7 +21,7 @@ Create these resources before the first GitHub deployment:
 - The R2 bucket used by the `FILES` binding.
 - The remotely managed Cloudflare Tunnel and its Public Hostname, routed to `http://127.0.0.1:8789` inside the Dokploy Compose network namespace.
 - A Cloudflare Access Self-hosted application for the Connector hostname and a Service Token-only policy.
-- The production Google OAuth Web client with `${DEPLOY_APP_ORIGIN}/api/auth/google/callback` registered exactly.
+- Optional: a production Google OAuth Web client with `${DEPLOY_APP_ORIGIN}/api/auth/google/callback` registered exactly.
 
 Use a scoped Cloudflare API token rather than the Global API Key. It must be able to deploy Workers, update Worker secrets, and apply D1 migrations in the target account. Add further permissions only when the workflow is expected to create or modify other Cloudflare resources.
 
@@ -33,13 +33,14 @@ Create a GitHub Environment named `production`. Add environment protection rules
 | --- | --- | --- |
 | `DEPLOY_WORKER_NAME` | `edge-ssh-workbench` | Cloudflare Worker name |
 | `DEPLOY_APP_ORIGIN` | `https://terminal.example.com` | Exact application origin; no trailing slash or path |
-| `DEPLOY_GOOGLE_CLIENT_ID` | `...apps.googleusercontent.com` | Google OAuth Web client ID |
-| `DEPLOY_GOOGLE_ALLOWED_EMAILS` | `admin@example.com` | Exact comma-separated allowlist |
+| `DEPLOY_GOOGLE_CLIENT_ID` (optional) | `...apps.googleusercontent.com` | Google OAuth Web client ID; configure with the email allowlist and client secret |
+| `DEPLOY_GOOGLE_ALLOWED_EMAILS` (optional) | `admin@example.com` | Exact comma-separated allowlist; configure with the Google client ID and secret |
 | `DEPLOY_D1_DATABASE_ID` | D1 UUID | Existing production D1 identifier |
 | `DEPLOY_D1_DATABASE_NAME` | `edge-ssh-workbench` | Existing production D1 name |
 | `DEPLOY_R2_BUCKET_NAME` | `edge-ssh-workbench-files` | Existing production R2 bucket |
 | `DEPLOY_TAILNET_CONNECTOR_URL` | `https://ssh-connector.example.com/v1/connect` | Connector WebSocket Upgrade endpoint |
 | `DEPLOY_ALLOWED_SSH_PORTS` | `22,7022` | Worker-side SSH port allowlist |
+| `DEPLOY_TAILSCALE_TAILNET` (optional) | `example.com` | Tailnet organization/name used for device discovery; requires the API token secret |
 
 Add these GitHub Environment Secrets:
 
@@ -53,9 +54,11 @@ GOOGLE_CLIENT_SECRET
 TAILNET_CONNECTOR_HMAC_KEY
 TAILNET_CONNECTOR_ACCESS_CLIENT_ID
 TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET
+TAILSCALE_API_TOKEN
 ```
 
 `CREDENTIAL_MASTER_KEY` decrypts saved credentials and TOTP records. `SESSION_HMAC_KEY` authenticates sessions. Do not regenerate either value during a normal deployment. `TAILNET_CONNECTOR_HMAC_KEY` must equal the Connector-side `CONNECTOR_HMAC_KEY`, but it must remain distinct from the other two keys.
+`GOOGLE_CLIENT_SECRET`, the two Cloudflare Access values, and `TAILSCALE_API_TOKEN` are optional; configure each only with its matching variables. The workflow uploads only non-empty optional secrets.
 
 ## Dokploy configuration
 

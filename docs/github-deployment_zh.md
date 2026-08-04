@@ -21,7 +21,7 @@ Web 前端会打包到 Worker 的 assets binding 中。除非修改认证和同�
 - `FILES` binding 使用的 R2 bucket。
 - remotely-managed Cloudflare Tunnel；其 Public Hostname 在 Dokploy Compose 共享网络命名空间中指向 `http://127.0.0.1:8789`。
 - Connector hostname 对应的 Cloudflare Access Self-hosted application，以及只允许 Service Token 的 policy。
-- 生产 Google OAuth Web client，并精确注册 `${DEPLOY_APP_ORIGIN}/api/auth/google/callback`。
+- 可选：生产 Google OAuth Web client，并精确注册 `${DEPLOY_APP_ORIGIN}/api/auth/google/callback`。
 
 使用最小权限的 Cloudflare API Token，不要使用 Global API Key。它需要能够在目标账户中部署 Workers、更新 Worker Secrets 和应用 D1 migration。只有当 workflow 需要创建或修改其他 Cloudflare 资源时，才增加相应权限。
 
@@ -33,13 +33,14 @@ Web 前端会打包到 Worker 的 assets binding 中。除非修改认证和同�
 | --- | --- | --- |
 | `DEPLOY_WORKER_NAME` | `edge-ssh-workbench` | Cloudflare Worker 名称 |
 | `DEPLOY_APP_ORIGIN` | `https://terminal.example.com` | 精确应用 origin，不能带末尾 `/` 或路径 |
-| `DEPLOY_GOOGLE_CLIENT_ID` | `...apps.googleusercontent.com` | Google OAuth Web Client ID |
-| `DEPLOY_GOOGLE_ALLOWED_EMAILS` | `admin@example.com` | 逗号分隔的精确邮箱白名单 |
+| `DEPLOY_GOOGLE_CLIENT_ID`（可选） | `...apps.googleusercontent.com` | Google OAuth Web Client ID；需与邮箱白名单及 Client Secret 一起配置 |
+| `DEPLOY_GOOGLE_ALLOWED_EMAILS`（可选） | `admin@example.com` | 逗号分隔的精确邮箱白名单；需与 Google Client ID 及 Secret 一起配置 |
 | `DEPLOY_D1_DATABASE_ID` | D1 UUID | 已存在的生产 D1 ID |
 | `DEPLOY_D1_DATABASE_NAME` | `edge-ssh-workbench` | 已存在的生产 D1 名称 |
 | `DEPLOY_R2_BUCKET_NAME` | `edge-ssh-workbench-files` | 已存在的生产 R2 bucket |
 | `DEPLOY_TAILNET_CONNECTOR_URL` | `https://ssh-connector.example.com/v1/connect` | Connector WebSocket Upgrade endpoint |
 | `DEPLOY_ALLOWED_SSH_PORTS` | `22,7022` | Worker 侧 SSH 端口白名单 |
+| `DEPLOY_TAILSCALE_TAILNET`（可选） | `example.com` | 设备发现使用的 Tailnet 组织名/名称；需同时配置 API Token Secret |
 
 添加以下 GitHub Environment Secrets：
 
@@ -53,9 +54,11 @@ GOOGLE_CLIENT_SECRET
 TAILNET_CONNECTOR_HMAC_KEY
 TAILNET_CONNECTOR_ACCESS_CLIENT_ID
 TAILNET_CONNECTOR_ACCESS_CLIENT_SECRET
+TAILSCALE_API_TOKEN
 ```
 
 `CREDENTIAL_MASTER_KEY` 用于解密已保存凭据和 TOTP 记录，`SESSION_HMAC_KEY` 用于认证会话。正常部署时不要重新生成这两个值。`TAILNET_CONNECTOR_HMAC_KEY` 必须与 Connector 侧的 `CONNECTOR_HMAC_KEY` 相同，但必须与前两枚密钥相互独立。
+`GOOGLE_CLIENT_SECRET`、两项 Cloudflare Access 值和 `TAILSCALE_API_TOKEN` 均为可选；仅在对应变量已经配置时添加。Workflow 只会上载非空的可选 Secret。
 
 ## Dokploy 配置
 
