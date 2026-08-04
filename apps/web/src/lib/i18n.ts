@@ -134,7 +134,7 @@ const messages = {
 		tailscaleUnavailable: "不可用",
 		tailscaleSettings: "Tailscale 设置",
 		tailscaleSettingsHelp:
-			"设置 Tailnet 名称和 Tailscale API access token。Token 将由 Worker 加密保存。",
+			"Tailnet 填写组织名，或填写“-”使用 Token 的默认 Tailnet；不要填写 *.ts.net MagicDNS 后缀。Token 将由 Worker 加密保存。",
 		tailscaleApiToken: "API access token",
 		tailscaleTokenKeep: "留空则保留当前 Token",
 		tailscaleConfigurationFailed: "无法保存 Tailscale 配置",
@@ -283,7 +283,7 @@ const messages = {
 		tailscaleUnavailable: "Unavailable",
 		tailscaleSettings: "Tailscale settings",
 		tailscaleSettingsHelp:
-			"Set the Tailnet name and Tailscale API access token. The Worker stores the token encrypted.",
+			"Enter the organization name, or use “-” for the token's default Tailnet; do not enter a *.ts.net MagicDNS suffix. The Worker stores the token encrypted.",
 		tailscaleApiToken: "API access token",
 		tailscaleTokenKeep: "Leave blank to keep the current token",
 		tailscaleConfigurationFailed: "Unable to save Tailscale configuration",

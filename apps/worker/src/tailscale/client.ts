@@ -240,7 +240,8 @@ export async function fetchTailscaleDevices(
 				Accept: "application/json",
 				Authorization: `Basic ${btoa(`${config.token}:`)}`,
 			},
-			redirect: "error",
+			// Workerd rejects redirect="error"; manual keeps credentials from following redirects.
+			redirect: "manual",
 			signal: AbortSignal.timeout(10_000),
 		});
 	} catch {

@@ -127,7 +127,7 @@ export function TailscaleImportDialog({ t, onClose, onImported }: Props) {
 			const response = await api.tailscaleConfiguration();
 			if (!mountedRef.current) return;
 			setConfiguration(response);
-			setConfigTailnet(response.tailnet ?? "");
+			setConfigTailnet(response.tailnet ?? "-");
 			setConfiguring(!response.configured);
 			if (response.configured) await loadDevices();
 		} catch (caught) {
