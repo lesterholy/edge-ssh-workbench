@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Files, KeyRound, Languages, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, ShieldCheck, Sun, TerminalSquare } from "lucide-react";
 import type {
   EphemeralCredential,
@@ -33,6 +33,16 @@ const TerminalPane = lazy(async () => {
 type HostKeyMessage = typeof ServerHostKeyMessageSchema._output;
 type MetricsMessage = typeof ServerMetricsMessageSchema._output;
 type WorkTab = "files" | "history" | "log";
+type ResizeSide = "left" | "right" | "bottom";
+
+const MIN_SIDEBAR_W = 220;
+const MAX_SIDEBAR_W = 480;
+const MIN_MONITOR_W = 240;
+const MAX_MONITOR_W = 560;
+const MIN_BOTTOM_H = 150;
+const MAX_BOTTOM_H = 600;
+const MIN_CENTER_W = 520;
+const MIN_TERMINAL_AREA_H = 360;
 
 const now = () => new Date().toISOString();
 const fallbackSettings: Settings = {
@@ -43,6 +53,10 @@ const fallbackSettings: Settings = {
   history: { commandRetentionDays: 365, sessionRetentionDays: 90, collectCommands: true },
   updatedAt: now()
 };
+
+function clampSize(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -70,6 +84,12 @@ export default function App() {
   const [securityDialogOpen, setSecurityDialogOpen] = useState(false);
   const selected = profiles.find((profile) => profile.id === selectedId);
   const t = useMemo(() => translate(settings.language), [settings.language]);
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampSize(Number(localStorage.getItem("edgesh.sidebarWidth")) || 288, MIN_SIDEBAR_W, MAX_SIDEBAR_W));
+  const [monitorWidth, setMonitorWidth] = useState(() => clampSize(Number(localStorage.getItem("edgesh.monitorWidth")) || 300, MIN_MONITOR_W, MAX_MONITOR_W));
+  const [bottomHeight, setBottomHeight] = useState(() => clampSize(Number(localStorage.getItem("edgesh.bottomHeight")) || 240, MIN_BOTTOM_H, MAX_BOTTOM_H));
+  const sizesRef = useRef({ sidebarWidth, monitorWidth, bottomHeight });
+  const centerRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ axis: "x" | "y"; side: ResizeSide; startClient: number; startSize: number; min: number; max: number } | null>(null);
 
   useEffect(() => {
     api.authState().then((state) => {
@@ -82,6 +102,55 @@ export default function App() {
     document.documentElement.dataset.theme = settings.theme;
     document.documentElement.lang = settings.language;
   }, [settings.language, settings.theme]);
+  useEffect(() => {
+    sizesRef.current = { sidebarWidth, monitorWidth, bottomHeight };
+  }, [sidebarWidth, monitorWidth, bottomHeight]);
+  useEffect(() => {
+    function onMove(event: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag) return;
+      event.preventDefault();
+      const delta =
+        drag.axis === "x"
+          ? drag.side === "left"
+            ? event.clientX - drag.startClient
+            : drag.startClient - event.clientX
+          : drag.startClient - event.clientY;
+      const next = clampSize(drag.startSize + delta, drag.min, drag.max);
+      if (drag.side === "left") {
+        sizesRef.current.sidebarWidth = next;
+        setSidebarWidth(next);
+      } else if (drag.side === "right") {
+        sizesRef.current.monitorWidth = next;
+        setMonitorWidth(next);
+      } else {
+        sizesRef.current.bottomHeight = next;
+        setBottomHeight(next);
+      }
+    }
+    function finishResize(event: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag) return;
+      dragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      const size = drag.side === "left" ? sizesRef.current.sidebarWidth
+        : drag.side === "right" ? sizesRef.current.monitorWidth : sizesRef.current.bottomHeight;
+      const key = drag.side === "left" ? "sidebarWidth" : drag.side === "right" ? "monitorWidth" : "bottomHeight";
+      localStorage.setItem(`edgesh.${key}`, String(size));
+      event.preventDefault();
+    }
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", finishResize);
+    document.addEventListener("pointercancel", finishResize);
+    return () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", finishResize);
+      document.removeEventListener("pointercancel", finishResize);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, []);
   useEffect(() => {
     if (!authenticated) return;
     void Promise.all([api.profiles(), api.settings()]).then(([profileList, savedSettings]) => {
@@ -150,6 +219,52 @@ export default function App() {
   function connect() {
     if (selected) beginConnection(selected);
   }
+  function resizeBounds(side: ResizeSide): { min: number; max: number } {
+    if (side === "bottom") {
+      const available = (centerRef.current?.clientHeight ?? window.innerHeight) - MIN_TERMINAL_AREA_H;
+      return { min: MIN_BOTTOM_H, max: Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, available)) };
+    }
+    const monitorVisible = monitorOpen && window.matchMedia("(min-width: 1200px)").matches;
+    const otherWidth = side === "left"
+      ? (monitorVisible ? sizesRef.current.monitorWidth : 0)
+      : (sidebarOpen ? sizesRef.current.sidebarWidth : 0);
+    const hardMax = side === "left" ? MAX_SIDEBAR_W : MAX_MONITOR_W;
+    const min = side === "left" ? MIN_SIDEBAR_W : MIN_MONITOR_W;
+    return { min, max: Math.max(min, Math.min(hardMax, window.innerWidth - otherWidth - MIN_CENTER_W)) };
+  }
+  function setPanelSize(side: ResizeSide, value: number) {
+    const bounds = resizeBounds(side);
+    const next = clampSize(value, bounds.min, bounds.max);
+    if (side === "left") setSidebarWidth(next);
+    else if (side === "right") setMonitorWidth(next);
+    else setBottomHeight(next);
+    sizesRef.current = {
+      ...sizesRef.current,
+      ...(side === "left" ? { sidebarWidth: next } : side === "right" ? { monitorWidth: next } : { bottomHeight: next })
+    };
+    const key = side === "left" ? "sidebarWidth" : side === "right" ? "monitorWidth" : "bottomHeight";
+    localStorage.setItem(`edgesh.${key}`, String(next));
+  }
+  function startResize(event: React.PointerEvent, axis: "x" | "y", side: ResizeSide) {
+    event.preventDefault();
+    const startSize = side === "left" ? sidebarWidth : side === "right" ? monitorWidth : bottomHeight;
+    dragRef.current = { axis, side, startClient: axis === "x" ? event.clientX : event.clientY, startSize, ...resizeBounds(side) };
+    document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
+    document.body.style.userSelect = "none";
+    (event.target as Element).setPointerCapture?.(event.pointerId);
+  }
+  function resizeWithKeyboard(event: React.KeyboardEvent, side: ResizeSide) {
+    const step = event.shiftKey ? 40 : 12;
+    let delta = 0;
+    if (side === "left" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) delta = event.key === "ArrowRight" ? step : -step;
+    if (side === "right" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) delta = event.key === "ArrowLeft" ? step : -step;
+    if (side === "bottom" && (event.key === "ArrowUp" || event.key === "ArrowDown")) delta = event.key === "ArrowUp" ? step : -step;
+    if (!delta) return;
+    event.preventDefault();
+    const current = side === "left" ? sidebarWidth : side === "right" ? monitorWidth : bottomHeight;
+    setPanelSize(side, current + delta);
+  }
+
   function connectProfile(id: string) {
     const profile = profiles.find((item) => item.id === id);
     if (profile) beginConnection(profile);
@@ -224,9 +339,57 @@ export default function App() {
         </div>
       </header>
       {notice ? <div className="notice" role="alert">{notice}</div> : null}
-      <main className={gridClass}>
+      <main
+        className={gridClass}
+        style={{
+          "--sidebar-w": `${sidebarWidth}px`,
+          "--monitor-w": `${monitorWidth}px`,
+          "--bottom-h": `${bottomHeight}px`,
+        } as React.CSSProperties}
+      >
+        {sidebarOpen ? (
+          <div
+            className="resize-handle resize-handle-v resize-handle-left"
+            role="separator"
+            aria-label={t("resizeServers")}
+            aria-orientation="vertical"
+            aria-valuemin={MIN_SIDEBAR_W}
+            aria-valuemax={MAX_SIDEBAR_W}
+            aria-valuenow={sidebarWidth}
+            tabIndex={0}
+            onPointerDown={(event) => startResize(event, "x", "left")}
+            onKeyDown={(event) => resizeWithKeyboard(event, "left")}
+          />
+        ) : null}
+        {monitorOpen ? (
+          <div
+            className="resize-handle resize-handle-v resize-handle-right"
+            role="separator"
+            aria-label={t("resizeStatus")}
+            aria-orientation="vertical"
+            aria-valuemin={MIN_MONITOR_W}
+            aria-valuemax={MAX_MONITOR_W}
+            aria-valuenow={monitorWidth}
+            tabIndex={0}
+            onPointerDown={(event) => startResize(event, "x", "right")}
+            onKeyDown={(event) => resizeWithKeyboard(event, "right")}
+          />
+        ) : null}
+
         <ProfileSidebar profiles={profiles} selectedId={selectedId} connectionBusy={connectionBusy} t={t} onSelect={selectProfile} onConnect={connectProfile} onCreate={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} />
-        <div className="center-workspace">
+        <div className="center-workspace" ref={centerRef}>
+          <div
+            className="resize-handle resize-handle-h resize-handle-bottom"
+            role="separator"
+            aria-label={t("resizeTerminal")}
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_BOTTOM_H}
+            aria-valuemax={MAX_BOTTOM_H}
+            aria-valuenow={bottomHeight}
+            tabIndex={0}
+            onPointerDown={(event) => startResize(event, "y", "bottom")}
+            onKeyDown={(event) => resizeWithKeyboard(event, "bottom")}
+          />
           <div className="connection-strip">
             <div className="connection-target">
               <span className={`status-pulse${connected ? " on" : ""}${connectionState === "error" ? " err" : ""}`} aria-hidden="true" />
@@ -264,15 +427,17 @@ export default function App() {
               }}
             />
           </Suspense>
-          <div className="work-tabs" role="tablist">
-            <button className={tab === "files" ? "active" : ""} type="button" role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}><Files size={15} />{t("files")}</button>
-            <button className={tab === "history" ? "active" : ""} type="button" role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}><TerminalSquare size={15} />{t("history")}</button>
-            <button className={tab === "log" ? "active" : ""} type="button" role="tab" aria-selected={tab === "log"} onClick={() => setTab("log")}><ScrollText size={15} />{t("sessionLog")}</button>
-          </div>
-          <div className="tab-content">
-            {tab === "files" ? <FileWorkspace channel={connected ? channel : null} message={lastMessage} t={t} /> : null}
-            {tab === "history" ? <HistoryPanel t={t} /> : null}
-            {tab === "log" ? <div className="event-log">{events.map((event, index) => <code key={`${index}-${event}`}>{event}</code>)}</div> : null}
+          <div className="bottom-workspace">
+            <div className="work-tabs" role="tablist">
+              <button className={tab === "files" ? "active" : ""} type="button" role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}><Files size={15} />{t("files")}</button>
+              <button className={tab === "history" ? "active" : ""} type="button" role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}><TerminalSquare size={15} />{t("history")}</button>
+              <button className={tab === "log" ? "active" : ""} type="button" role="tab" aria-selected={tab === "log"} onClick={() => setTab("log")}><ScrollText size={15} />{t("sessionLog")}</button>
+            </div>
+            <div className="tab-content">
+              {tab === "files" ? <FileWorkspace channel={connected ? channel : null} message={lastMessage} t={t} /> : null}
+              {tab === "history" ? <HistoryPanel t={t} connected={connected} channel={connected ? channel : null} profile={selected} message={lastMessage} /> : null}
+              {tab === "log" ? <div className="event-log">{events.map((event, index) => <code key={`${index}-${event}`}>{event}</code>)}</div> : null}
+            </div>
           </div>
         </div>
         <MonitorPanel metrics={metrics} t={t} />

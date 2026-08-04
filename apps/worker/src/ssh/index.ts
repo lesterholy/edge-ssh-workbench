@@ -1,6 +1,7 @@
 export { CloudflareSocketDuplex, CloudflareSSHTransportFactory } from "./cloudflare-transport";
 export { isSafeCommandForHistory, TerminalCommandCapture } from "./command-capture";
-export { METRICS_COMMAND, parseMetrics } from "./metrics";
+export { METRICS_COMMAND, parseMetrics, parseUfwStatus } from "./metrics";
+export { parseBashHistory, shellHistoryCommand } from "./shell-history";
 export { SSHSessionAudit } from "./session-audit";
 export type { NegotiatedSSHAlgorithms } from "./session-audit";
 export {

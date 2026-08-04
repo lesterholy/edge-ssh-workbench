@@ -163,6 +163,7 @@ export class SSHSessionDO implements DurableObject {
   }
 
   private async processWebSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    let requestId: string | undefined;
     try {
       if (typeof raw !== "string") {
         await this.handleBinaryFrame(socket, new Uint8Array(raw));
@@ -175,6 +176,7 @@ export class SSHSessionDO implements DurableObject {
       try { decoded = JSON.parse(raw); } catch { throw new ProtocolError("VALIDATION_FAILED", "Invalid WebSocket JSON"); }
       const result = ClientWebSocketMessageSchema.safeParse(decoded);
       if (!result.success) throw new ProtocolError("VALIDATION_FAILED", "Invalid WebSocket message");
+      requestId = result.data.requestId;
       await this.handleClientMessage(socket, result.data);
     } catch (error) {
       const live = this.sessions.get(socket);
@@ -182,7 +184,7 @@ export class SSHSessionDO implements DurableObject {
         ? error
         : new ProtocolError("INTERNAL_ERROR", asError(error).message, !live);
       const context = live?.authorization ?? this.authorizations.get(socket);
-      this.sendError(socket, context, failure.code, failure.message, failure.fatal);
+      this.sendError(socket, context, failure.code, failure.message, failure.fatal, requestId);
       if (failure.fatal) await this.closeSocket(socket, failure.closeCode, failure.message);
     }
   }
@@ -492,6 +494,19 @@ export class SSHSessionDO implements DurableObject {
           message: "SSH session disconnected by the user"
         });
         break;
+      case "shell-history": {
+        const entries = await live.engine.readShellHistory(message.limit);
+        this.sendServer(socket, {
+          protocolVersion: WS_PROTOCOL_VERSION,
+          type: "shell-history-result",
+          requestId: message.requestId,
+          sessionId: context.sessionId,
+          shell: "bash",
+          source: "~/.bash_history",
+          entries
+        });
+        break;
+      }
       case "sftp-list": {
         const entries = await live.engine.listDirectory(message.path);
         if (message.cursor !== undefined && !/^\d{1,10}$/.test(message.cursor)) {
@@ -845,6 +860,7 @@ export class SSHSessionDO implements DurableObject {
 
   private sendMetrics(socket: WebSocket, context: TicketAuthorization, snapshot: MetricsSnapshot): void {
     const supported = <T>(value: T) => ({ support: "supported" as const, value });
+    const unsupported = { support: "unsupported" as const, value: null };
     this.sendServer(socket, {
       protocolVersion: WS_PROTOCOL_VERSION,
       type: "metrics",
@@ -854,7 +870,8 @@ export class SSHSessionDO implements DurableObject {
       memory: supported(snapshot.metrics.memory),
       swap: supported(snapshot.metrics.swap),
       rootDisk: supported(snapshot.metrics.disk),
-      processes: supported(snapshot.processes)
+      processes: supported(snapshot.processes),
+      firewall: snapshot.firewall ? supported(snapshot.firewall) : unsupported
     });
   }
 
@@ -930,13 +947,15 @@ export class SSHSessionDO implements DurableObject {
     context: TicketAuthorization | undefined,
     code: ApiErrorCode,
     message: string,
-    fatal: boolean
+    fatal: boolean,
+    requestId?: string
   ): void {
     if (!context || socket.readyState !== WebSocket.OPEN) return;
     this.sendServer(socket, {
       protocolVersion: WS_PROTOCOL_VERSION,
       type: "error",
       sessionId: context.sessionId,
+      ...(requestId ? { requestId } : {}),
       code,
       message: message.slice(0, 512) || "SSH operation failed",
       retryable: code === "SSH_CONNECTION_FAILED" || code === "SERVICE_UNAVAILABLE",

@@ -155,6 +155,15 @@ export const ClientDisconnectMessageSchema = z
   .strict();
 export type ClientDisconnectMessage = z.infer<typeof ClientDisconnectMessageSchema>;
 
+export const ClientShellHistoryMessageSchema = z
+  .object({
+    ...ClientMessageBase,
+    type: z.literal("shell-history"),
+    limit: z.number().int().min(1).max(50).default(50),
+  })
+  .strict();
+export type ClientShellHistoryMessage = z.infer<typeof ClientShellHistoryMessageSchema>;
+
 export const ClientSftpListMessageSchema = z
   .object({
     ...ClientMessageBase,
@@ -274,6 +283,7 @@ export const ClientWebSocketMessageSchema = z
     ClientTerminalInputMessageSchema,
     ClientResizeMessageSchema,
     ClientDisconnectMessageSchema,
+    ClientShellHistoryMessageSchema,
     ClientSftpListMessageSchema,
     ClientSftpReadMessageSchema,
     ClientSftpWriteMessageSchema,
@@ -380,6 +390,27 @@ export const ProcessMetricSchema = z
   .strict();
 export type ProcessMetric = z.infer<typeof ProcessMetricSchema>;
 
+export const FirewallRuleSchema = z
+  .object({
+    destination: z.string().min(1).max(256),
+    action: z.string().min(1).max(32),
+    source: z.string().min(1).max(256),
+  })
+  .strict();
+export type FirewallRule = z.infer<typeof FirewallRuleSchema>;
+
+export const FirewallMetricSchema = z
+  .object({
+    backend: z.literal("ufw"),
+    status: z.enum(["active", "inactive"]),
+    logging: z.string().min(1).max(64).optional(),
+    defaultIncoming: z.string().min(1).max(32).optional(),
+    defaultOutgoing: z.string().min(1).max(32).optional(),
+    rules: z.array(FirewallRuleSchema).max(50),
+  })
+  .strict();
+export type FirewallMetric = z.infer<typeof FirewallMetricSchema>;
+
 const UsageMetricSchema = z
   .object({
     usedBytes: z.number().int().nonnegative(),
@@ -398,9 +429,29 @@ export const ServerMetricsMessageSchema = z
     swap: MetricValueSchema(UsageMetricSchema),
     rootDisk: MetricValueSchema(UsageMetricSchema),
     processes: MetricValueSchema(z.array(ProcessMetricSchema).max(8)),
+    firewall: MetricValueSchema(FirewallMetricSchema),
   })
   .strict();
 export type ServerMetricsMessage = z.infer<typeof ServerMetricsMessageSchema>;
+
+export const ShellHistoryEntrySchema = z
+  .object({
+    command: z.string().min(1).max(768),
+    executedAt: TimestampSchema.optional(),
+  })
+  .strict();
+export type ShellHistoryEntry = z.infer<typeof ShellHistoryEntrySchema>;
+
+export const ServerShellHistoryResultMessageSchema = z
+  .object({
+    ...ServerMessageBase,
+    type: z.literal("shell-history-result"),
+    shell: z.literal("bash"),
+    source: z.literal("~/.bash_history"),
+    entries: z.array(ShellHistoryEntrySchema).max(50),
+  })
+  .strict();
+export type ServerShellHistoryResultMessage = z.infer<typeof ServerShellHistoryResultMessageSchema>;
 
 export const SftpEntrySchema = z
   .object({
@@ -539,6 +590,7 @@ export const ServerWebSocketMessageSchema = z
     ServerHostKeyMessageSchema,
     ServerTerminalOutputMessageSchema,
     ServerMetricsMessageSchema,
+    ServerShellHistoryResultMessageSchema,
     ServerSftpListResultMessageSchema,
     ServerSftpReadResultMessageSchema,
     ServerSftpMutationResultMessageSchema,

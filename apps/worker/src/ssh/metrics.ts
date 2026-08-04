@@ -1,4 +1,4 @@
-import type { MetricsSnapshot, ProcessInfo, ResourceUsage } from "./types";
+import type { FirewallStatus, MetricsSnapshot, ProcessInfo, ResourceUsage } from "./types";
 
 const SECTION = "__EDGESSH_SECTION__";
 
@@ -7,7 +7,8 @@ export const METRICS_COMMAND = [
   "sleep 1; head -n 1 /proc/stat",
   "cat /proc/meminfo",
   "df -B1 -P / | tail -n 1",
-  "ps -eo pid=,user=,%cpu=,%mem=,comm= --sort=-%cpu | head -n 8"
+  "ps -eo pid=,user=,%cpu=,%mem=,comm= --sort=-%cpu | head -n 8",
+  "if command -v ufw >/dev/null 2>&1; then LC_ALL=C ufw status verbose 2>/dev/null || true; fi"
 ].join(`; printf '\\n${SECTION}\\n'; `);
 
 function finiteNonNegative(value: string | undefined): number {
@@ -73,9 +74,44 @@ function parseProcesses(raw: string): ProcessInfo[] {
   return result;
 }
 
+function bounded(value: string, maxLength: number): string {
+  return value.trim().slice(0, maxLength);
+}
+
+export function parseUfwStatus(raw: string): FirewallStatus | null {
+  const statusMatch = raw.match(/^Status:\s+(active|inactive)\s*$/m);
+  if (!statusMatch) return null;
+
+  const status = statusMatch[1] as FirewallStatus["status"];
+  const logging = raw.match(/^Logging:\s+(.+)$/m)?.[1];
+  const defaults = raw.match(/^Default:\s+(.+?)\s+\(incoming\),\s+(.+?)\s+\(outgoing\)/m);
+  const rules: FirewallStatus["rules"] = [];
+
+  if (status === "active") {
+    for (const line of raw.split("\n")) {
+      const fields = line.trim().split(/\s{2,}/);
+      if (fields.length < 3) continue;
+      const action = bounded(fields[1] ?? "", 32);
+      if (!/^(?:ALLOW|DENY|REJECT|LIMIT)(?:\s+(?:IN|OUT|FWD))?$/.test(action)) continue;
+      const destination = bounded(fields[0] ?? "", 256);
+      const source = bounded(fields.slice(2).join("  "), 256);
+      if (destination && source && rules.length < 50) rules.push({ destination, action, source });
+    }
+  }
+
+  return {
+    backend: "ufw",
+    status,
+    ...(logging ? { logging: bounded(logging, 64) } : {}),
+    ...(defaults?.[1] ? { defaultIncoming: bounded(defaults[1], 32) } : {}),
+    ...(defaults?.[2] ? { defaultOutgoing: bounded(defaults[2], 32) } : {}),
+    rules
+  };
+}
+
 export function parseMetrics(raw: string): MetricsSnapshot {
   const sections = raw.split(SECTION).map((section) => section.trim());
-  if (sections.length !== 5) throw new Error("Unexpected metrics response from SSH server");
+  if (sections.length !== 6) throw new Error("Unexpected metrics response from SSH server");
   return {
     metrics: {
       cpuPercent: parseCpu(sections[0] ?? "", sections[1] ?? ""),
@@ -84,6 +120,7 @@ export function parseMetrics(raw: string): MetricsSnapshot {
       disk: parseDisk(sections[3] ?? ""),
       updatedAt: new Date().toISOString()
     },
-    processes: parseProcesses(sections[4] ?? "")
+    processes: parseProcesses(sections[4] ?? ""),
+    firewall: parseUfwStatus(sections[5] ?? "")
   };
 }

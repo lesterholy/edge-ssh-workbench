@@ -181,3 +181,77 @@ describe("SSHSessionDO message ordering", () => {
     expect(events).toEqual(["connect:start", "connect:end", "resize:start", "resize:end"]);
   });
 });
+
+describe("SSHSessionDO shell history", () => {
+  it("returns bounded history from the active SSH engine", async () => {
+    const state = {
+      getWebSockets: () => [],
+      blockConcurrencyWhile: (callback: () => Promise<unknown>) => callback(),
+    } as unknown as DurableObjectState;
+    const session = new SSHSessionDO(state, {} as Env);
+    const send = vi.fn();
+    const socket = { readyState: 1, send } as unknown as WebSocket;
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    const sessionId = "22222222-2222-4222-8222-222222222222";
+    const requestId = "33333333-3333-4333-8333-333333333333";
+    const readShellHistory = vi.fn(async () => [{ command: "systemctl status ssh" }]);
+    const internals = session as unknown as {
+      sessions: Map<WebSocket, unknown>;
+      handleClientMessage(socket: WebSocket, message: ClientWebSocketMessage): Promise<void>;
+    };
+    internals.sessions.set(socket, {
+      authorization: { sessionId, attemptId: ownerId, profile: { ownerId } },
+      engine: { readShellHistory },
+    });
+
+    await internals.handleClientMessage(socket, {
+      protocolVersion: WS_PROTOCOL_VERSION,
+      requestId,
+      type: "shell-history",
+      limit: 25,
+    });
+
+    expect(readShellHistory).toHaveBeenCalledWith(25);
+    expect(JSON.parse(String(send.mock.calls[0]?.[0]))).toMatchObject({
+      type: "shell-history-result",
+      requestId,
+      sessionId,
+      shell: "bash",
+      entries: [{ command: "systemctl status ssh" }],
+    });
+  });
+
+  it("preserves the request ID when reading remote history fails", async () => {
+    const state = {
+      getWebSockets: () => [],
+      blockConcurrencyWhile: (callback: () => Promise<unknown>) => callback(),
+    } as unknown as DurableObjectState;
+    const session = new SSHSessionDO(state, {} as Env);
+    const send = vi.fn();
+    const socket = { readyState: 1, send } as unknown as WebSocket;
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    const sessionId = "22222222-2222-4222-8222-222222222222";
+    const requestId = "33333333-3333-4333-8333-333333333333";
+    const internals = session as unknown as { sessions: Map<WebSocket, unknown> };
+    internals.sessions.set(socket, {
+      authorization: { sessionId, attemptId: ownerId, profile: { ownerId } },
+      engine: { readShellHistory: vi.fn(async () => { throw new Error("History unavailable"); }) },
+    });
+
+    await session.webSocketMessage(socket, JSON.stringify({
+      protocolVersion: WS_PROTOCOL_VERSION,
+      requestId,
+      type: "shell-history",
+      limit: 25,
+    }));
+
+    expect(JSON.parse(String(send.mock.calls[0]?.[0]))).toMatchObject({
+      type: "error",
+      requestId,
+      sessionId,
+      code: "INTERNAL_ERROR",
+      message: "History unavailable",
+      fatal: false,
+    });
+  });
+});

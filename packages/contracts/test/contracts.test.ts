@@ -4,9 +4,11 @@ import {
   AuthStateSchema,
   BinaryFrameHeaderSchema,
   ClientResizeMessageSchema,
+  ClientShellHistoryMessageSchema,
   ProfileCreateRequestSchema,
   ProfileResponseSchema,
   ServerMetricsMessageSchema,
+  ServerShellHistoryResultMessageSchema,
   ServerTransferProgressMessageSchema,
   SettingsPatchRequestSchema,
   TAILNET_CONNECTOR_PROTOCOL_VERSION,
@@ -204,8 +206,33 @@ describe("public contracts", () => {
         swap: { support: "unsupported", value: null },
         rootDisk: { support: "unsupported", value: null },
         processes: { support: "unsupported", value: null },
+        firewall: { support: "unsupported", value: null },
       }).success,
     ).toBe(false);
+  });
+
+  it("bounds live shell history requests and responses", () => {
+    expect(ClientShellHistoryMessageSchema.safeParse({
+      protocolVersion: WS_PROTOCOL_VERSION,
+      requestId: id,
+      type: "shell-history",
+      limit: 50,
+    }).success).toBe(true);
+    expect(ClientShellHistoryMessageSchema.safeParse({
+      protocolVersion: WS_PROTOCOL_VERSION,
+      requestId: id,
+      type: "shell-history",
+      limit: 51,
+    }).success).toBe(false);
+    expect(ServerShellHistoryResultMessageSchema.safeParse({
+      protocolVersion: WS_PROTOCOL_VERSION,
+      requestId: id,
+      sessionId: id,
+      type: "shell-history-result",
+      shell: "bash",
+      source: "~/.bash_history",
+      entries: [{ command: "ls -la", executedAt: now }],
+    }).success).toBe(true);
   });
 
   it("uses a stable Tailnet Connector signing payload", () => {

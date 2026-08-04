@@ -11,11 +11,13 @@ import {
   type SFTPWrapper
 } from "ssh2";
 import { METRICS_COMMAND, parseMetrics } from "./metrics";
+import { parseBashHistory, shellHistoryCommand } from "./shell-history";
 import type {
   HostKeyDecision,
   HostKeyRecord,
   MetricsSnapshot,
   RemoteFile,
+  ShellHistoryEntry,
   SFTPDownloadOptions,
   SSHConnectionProfile,
   SSHAuthentication,
@@ -30,6 +32,7 @@ const MAX_INPUT_BYTES = 256 * 1024;
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_EXEC_OUTPUT_BYTES = 2 * 1024 * 1024;
+const MAX_SHELL_HISTORY_BYTES = 64 * 1024;
 const MAX_UPLOAD_CHUNK_BYTES = 256 * 1024;
 
 type SSHClientAuthenticationOptions = Pick<ConnectConfig, "authHandler" | "password" | "privateKey" | "passphrase">;
@@ -157,6 +160,13 @@ export class SSH2Engine implements SSHEngine {
     this.requireReady();
     const output = await this.exec(METRICS_COMMAND, MAX_EXEC_OUTPUT_BYTES);
     return parseMetrics(output);
+  }
+
+  async readShellHistory(limit: number): Promise<ShellHistoryEntry[]> {
+    this.requireReady();
+    const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+    const output = await this.exec(shellHistoryCommand(safeLimit), MAX_SHELL_HISTORY_BYTES);
+    return parseBashHistory(output, safeLimit);
   }
 
   async listDirectory(path: string): Promise<RemoteFile[]> {

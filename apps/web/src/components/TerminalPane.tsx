@@ -100,6 +100,23 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
     terminal.loadAddon(new WebLinksAddon());
     terminal.open(hostRef.current);
     fit.fit();
+
+    const host = hostRef.current;
+    let selectionAtPointerDown = "";
+    const rememberSelection = () => {
+      selectionAtPointerDown = terminal.getSelection();
+    };
+    const copySelection = async () => {
+      const text = terminal.getSelection();
+      if (!text || text === selectionAtPointerDown) return;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Clipboard may be unavailable; ignore silently.
+      }
+    };
+    host.addEventListener("pointerdown", rememberSelection);
+    host.addEventListener("pointerup", copySelection);
     terminalRef.current = terminal;
     fitRef.current = fit;
     const observer = new ResizeObserver(() => fit.fit());
@@ -110,6 +127,8 @@ export function TerminalPane({ profile, connectSequence, ephemeralCredential, se
       socketRef.current = undefined;
       socket?.close(1000, "component disposed");
       terminal.dispose();
+      host.removeEventListener("pointerdown", rememberSelection);
+      host.removeEventListener("pointerup", copySelection);
     };
   }, []);
 

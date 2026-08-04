@@ -88,6 +88,26 @@ export interface ProcessInfo {
   command: string;
 }
 
+export interface FirewallRule {
+  destination: string;
+  action: string;
+  source: string;
+}
+
+export interface FirewallStatus {
+  backend: "ufw";
+  status: "active" | "inactive";
+  logging?: string;
+  defaultIncoming?: string;
+  defaultOutgoing?: string;
+  rules: FirewallRule[];
+}
+
+export interface ShellHistoryEntry {
+  command: string;
+  executedAt?: string;
+}
+
 export interface ServerMetrics {
   cpuPercent: number;
   memory: ResourceUsage;
@@ -99,6 +119,7 @@ export interface ServerMetrics {
 export interface MetricsSnapshot {
   metrics: ServerMetrics;
   processes: ProcessInfo[];
+  firewall: FirewallStatus | null;
 }
 
 export type SSHEngineEvent =
@@ -133,6 +154,7 @@ export interface SSHEngine {
   input(data: Uint8Array): Promise<void>;
   resize(cols: number, rows: number): Promise<void>;
   execMetrics(): Promise<MetricsSnapshot>;
+  readShellHistory(limit: number): Promise<ShellHistoryEntry[]>;
   listDirectory(path: string): Promise<RemoteFile[]>;
   stat(path: string): Promise<RemoteFileMetadata>;
   createDirectory(path: string, mode: number): Promise<void>;
