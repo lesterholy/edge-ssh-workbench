@@ -202,6 +202,7 @@ describe("public contracts", () => {
 				protocolVersion: WS_PROTOCOL_VERSION,
 				kind: "sftp-upload-chunk",
 				sessionId: id,
+				attemptId: id,
 				sequence: 0,
 				payloadBytes: 1024,
 			}).success,
@@ -212,6 +213,7 @@ describe("public contracts", () => {
 				protocolVersion: WS_PROTOCOL_VERSION,
 				kind: "terminal-input",
 				sessionId: id,
+				attemptId: id,
 				sequence: 0,
 				payloadBytes: 1,
 			}).success,
@@ -236,6 +238,7 @@ describe("public contracts", () => {
 			ServerTransferProgressMessageSchema.safeParse({
 				protocolVersion: WS_PROTOCOL_VERSION,
 				sessionId: id,
+				attemptId: id,
 				type: "transfer-progress",
 				transferId: id,
 				direction: "upload",
@@ -256,6 +259,7 @@ describe("public contracts", () => {
 			ServerMetricsMessageSchema.safeParse({
 				protocolVersion: WS_PROTOCOL_VERSION,
 				sessionId: id,
+				attemptId: id,
 				type: "metrics",
 				sampledAt: now,
 				cpu: { support: "supported", value: null },
@@ -274,6 +278,7 @@ describe("public contracts", () => {
 				protocolVersion: WS_PROTOCOL_VERSION,
 				requestId: id,
 				type: "shell-history",
+				attemptId: id,
 				limit: 50,
 			}).success,
 		).toBe(true);
@@ -282,6 +287,7 @@ describe("public contracts", () => {
 				protocolVersion: WS_PROTOCOL_VERSION,
 				requestId: id,
 				type: "shell-history",
+				attemptId: id,
 				limit: 51,
 			}).success,
 		).toBe(false);
@@ -290,6 +296,7 @@ describe("public contracts", () => {
 				protocolVersion: WS_PROTOCOL_VERSION,
 				requestId: id,
 				sessionId: id,
+				attemptId: id,
 				type: "shell-history-result",
 				shell: "bash",
 				source: "~/.bash_history",

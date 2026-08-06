@@ -1,7 +1,11 @@
 import { ProfileResponseSchema } from "@edgesh/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ConnectionSessionRepository, redactCommand } from "./history";
+import {
+	CommandHistoryRepository,
+	ConnectionSessionRepository,
+	redactCommand,
+} from "./history";
 import { decodeTimeCursor, encodeTimeCursor } from "./pagination";
 import { OAuthRepository } from "./oauth";
 import { ProfileRepository } from "./profiles";
@@ -408,6 +412,65 @@ describe("storage helpers", () => {
 			hasPassword: false,
 		});
 		expect(updateValues).not.toContain("opaque-password");
+	});
+
+	it("scopes command history reads and clears to one SSH session", async () => {
+		const statements: Array<{ sql: string; values: unknown[] }> = [];
+		const database = {
+			prepare: (sql: string) => ({
+				bind: (...values: unknown[]) => {
+					statements.push({ sql, values });
+					return {
+						all: async () => ({ results: [] }),
+						run: async () => ({ meta: { changes: 0 } }),
+					};
+				},
+			}),
+		} as unknown as D1Database;
+		const ownerId = "11111111-1111-4111-8111-111111111111";
+		const sessionId = "22222222-2222-4222-8222-222222222222";
+		const repository = new CommandHistoryRepository(database);
+
+		await repository.list(ownerId, { sessionId });
+		await repository.clear(ownerId, { sessionId });
+
+		expect(statements).toHaveLength(2);
+		for (const statement of statements) {
+			expect(statement.sql).toContain("session_id = ?");
+			expect(statement.values).toContain(ownerId);
+			expect(statement.values).toContain(sessionId);
+		}
+	});
+
+	it("deletes a profile only when no active connection session references it", async () => {
+		let sql = "";
+		let bindings: unknown[] = [];
+		const database = {
+			prepare: (statement: string) => {
+				sql = statement;
+				return {
+					bind: (...values: unknown[]) => {
+						bindings = values;
+						return { run: async () => ({ meta: { changes: 1 } }) };
+					},
+				};
+			},
+		} as unknown as D1Database;
+		const repository = new ProfileRepository(database, masterKey);
+		const deleted = await repository.deleteIfNoActiveSessions(
+			"11111111-1111-4111-8111-111111111111",
+			"22222222-2222-4222-8222-222222222222",
+		);
+
+		expect(deleted).toBe(true);
+		expect(sql).toContain("NOT EXISTS");
+		expect(sql).toContain("status NOT IN ('closed', 'error')");
+		expect(bindings).toEqual([
+			"22222222-2222-4222-8222-222222222222",
+			"11111111-1111-4111-8111-111111111111",
+			"22222222-2222-4222-8222-222222222222",
+			"11111111-1111-4111-8111-111111111111",
+		]);
 	});
 });
 

@@ -8,6 +8,7 @@ import type {
 	ProfileListResponse,
 	ProfileResponse,
 	ProfileUpdateRequest,
+	SessionEventListResponse,
 	Settings,
 	SettingsPatchRequest,
 	SshTicketRequest,
@@ -114,15 +115,23 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify(input),
 		}),
-	commandHistory: (query = "") =>
-		request<CommandHistoryResponse>(
-			`/api/history/commands?limit=50${query ? `&query=${encodeURIComponent(query)}` : ""}`,
-		),
-	clearCommandHistory: () =>
+	commandHistory: (options: { query?: string; sessionId?: string } = {}) => {
+		const params = new URLSearchParams({ limit: "50" });
+		if (options.query) params.set("query", options.query);
+		if (options.sessionId) params.set("sessionId", options.sessionId);
+		return request<CommandHistoryResponse>(
+			`/api/history/commands?${params.toString()}`,
+		);
+	},
+	clearCommandHistory: (options: { sessionId?: string } = {}) =>
 		request<void>("/api/history/commands", {
 			method: "DELETE",
-			body: JSON.stringify({}),
+			body: JSON.stringify(options),
 		}),
+	sessionEvents: (sessionId: string) =>
+		request<SessionEventListResponse>(
+			`/api/history/sessions/${encodeURIComponent(sessionId)}/events`,
+		),
 	tailscaleConfiguration: () =>
 		request<TailscaleConfigurationResponse>("/api/tailscale/configuration"),
 	updateTailscaleConfiguration: (input: TailscaleConfigurationUpdateRequest) =>
