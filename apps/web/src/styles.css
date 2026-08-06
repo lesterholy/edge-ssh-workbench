@@ -2042,6 +2042,125 @@ button.file-row {
 .tailscale-import-dialog {
 	width: min(720px, 100%);
 }
+.batch-command-dialog {
+	width: min(640px, 100%);
+}
+.batch-command-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--border-subtle);
+	color: var(--text-muted);
+	font-size: 12px;
+}
+.batch-command-toolbar .text-button {
+	width: auto;
+	min-height: 30px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--surface-2);
+	padding: 5px 10px;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+.batch-command-toolbar .text-button:hover:not(:disabled) {
+	border-color: var(--border-strong);
+	background: var(--surface-3);
+	color: var(--text-hi);
+}
+.batch-command-targets {
+	max-height: 280px;
+	overflow: auto;
+	margin-top: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--surface-2);
+	padding: 6px;
+}
+.batch-command-target {
+	display: grid;
+	grid-template-columns: auto auto minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+	padding: 9px 10px;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	transition: background var(--dur-fast);
+}
+.batch-command-target:hover,
+.batch-command-target.selected {
+	background: var(--surface-3);
+}
+.batch-command-target input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	accent-color: var(--accent);
+	cursor: pointer;
+}
+.batch-target-status {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--accent);
+	box-shadow: 0 0 8px var(--accent-glow);
+}
+.batch-target-meta {
+	min-width: 0;
+}
+.batch-target-meta strong,
+.batch-target-meta small {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.batch-target-meta strong {
+	color: var(--text-hi);
+	font-size: 13px;
+}
+.batch-target-meta small {
+	margin-top: 2px;
+	color: var(--text-faint);
+	font: 11px / 1.3 var(--font-mono);
+}
+.batch-command-targets .empty-copy {
+	margin: 0;
+	padding: 24px 12px;
+	text-align: center;
+	color: var(--text-faint);
+	font-size: 13px;
+}
+.batch-command-input {
+	display: grid;
+	gap: 8px;
+	margin-top: 16px;
+	color: var(--text-muted);
+	font-size: 13px;
+	font-weight: 500;
+}
+.batch-command-input input {
+	font: 13px / 1.55 var(--font-mono);
+}
+.batch-command-input-error {
+	margin: 7px 0 0;
+	color: var(--danger);
+	font-size: 12px;
+}
+.batch-command-result {
+	margin: 12px 0 0;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+.batch-command-result strong {
+	color: var(--accent);
+}
+.batch-skipped-targets {
+	margin-left: 5px;
+	color: var(--text-faint);
+}
 .tailscale-toolbar {
 	display: flex;
 	align-items: center;
@@ -2347,6 +2466,16 @@ button.tailscale-status-main:focus-visible {
 }
 
 @media (max-width: 560px) {
+	.batch-command-toolbar {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+	.batch-command-targets {
+		max-height: 220px;
+	}
+	.batch-command-dialog .dialog-actions {
+		flex-direction: column-reverse;
+	}
 	.tailscale-toolbar {
 		flex-wrap: wrap;
 		gap: 8px;

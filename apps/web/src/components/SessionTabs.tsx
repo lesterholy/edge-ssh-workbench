@@ -3,12 +3,14 @@ import {
 	LoaderCircle,
 	PlugZap,
 	RotateCw,
+	SendHorizontal,
 	Unplug,
 	X,
 } from "lucide-react";
 import type { MessageKey } from "../lib/i18n";
 import {
 	isSessionRunning,
+	sessionDisplayName,
 	type WorkbenchSessionsState,
 } from "../lib/workbench-sessions";
 
@@ -20,6 +22,8 @@ type Props = {
 	onReconnect: (id: string) => void;
 	onClose: (id: string) => void;
 	onToggleSplit: () => void;
+	onBatchCommand: () => void;
+	connectedCount: number;
 };
 
 export function SessionTabs({
@@ -30,17 +34,11 @@ export function SessionTabs({
 	onReconnect,
 	onClose,
 	onToggleSplit,
+	onBatchCommand,
+	connectedCount,
 }: Props) {
 	const active = state.activeId ? state.sessions[state.activeId] : undefined;
 	const canSplit = state.order.length > 1;
-	const profileTotals = state.order.reduce<Record<string, number>>(
-		(totals, id) => {
-			const profileId = state.sessions[id]?.profile.id;
-			if (profileId) totals[profileId] = (totals[profileId] ?? 0) + 1;
-			return totals;
-		},
-		{},
-	);
 
 	return (
 		<div className="session-tabs">
@@ -49,21 +47,13 @@ export function SessionTabs({
 				role="tablist"
 				aria-label={t("sessions")}
 			>
-				{state.order.map((id, index) => {
+				{state.order.map((id) => {
 					const session = state.sessions[id];
 					if (!session) return null;
 					const selected = id === state.activeId;
 					const visible = state.panes.includes(id);
-					const ordinal = state.order
-						.slice(0, index + 1)
-						.filter(
-							(candidate) =>
-								state.sessions[candidate]?.profile.id === session.profile.id,
-						).length;
 					const displayName =
-						(profileTotals[session.profile.id] ?? 0) > 1
-							? `${session.profile.name} #${ordinal}`
-							: session.profile.name;
+						sessionDisplayName(state, id) ?? session.profile.name;
 					return (
 						<div
 							className={`session-tab${selected ? " selected" : ""}${visible ? " in-pane" : ""}`}
@@ -136,6 +126,17 @@ export function SessionTabs({
 							<RotateCw size={16} />
 						</button>
 					)}
+					<button
+						type="button"
+						title={`${t("batchCommand")} (${connectedCount})`}
+						aria-label={`${t("batchCommand")} (${connectedCount})`}
+						aria-haspopup="dialog"
+						data-batch-command-trigger
+						disabled={connectedCount === 0}
+						onClick={onBatchCommand}
+					>
+						<SendHorizontal size={16} />
+					</button>
 					<button
 						type="button"
 						className={state.layout === "split" ? "active" : ""}

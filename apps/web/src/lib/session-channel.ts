@@ -4,11 +4,17 @@ import type {
 } from "@edgesh/contracts";
 import type { DecodedBinaryFrame } from "./binary-frame";
 
+export type SessionMessageSender = (
+	message: Record<string, unknown>,
+) => string | null;
+export type SessionInputSender = (data: string) => string | null;
+
 export type SessionChannel = {
 	clientSessionId: string;
 	sessionId: string;
 	attemptId: string;
-	send: (message: Record<string, unknown>) => string | null;
+	send: SessionMessageSender;
+	sendInput: SessionInputSender;
 	sendBinary: (
 		kind: BinaryFrameKind,
 		payload: Uint8Array,
@@ -24,6 +30,17 @@ export type SessionChannel = {
 	isOpen: () => boolean;
 	bufferedAmount: () => number;
 };
+
+export function createTerminalInputSender(
+	send: SessionMessageSender,
+): SessionInputSender {
+	let sequence = 0;
+	return (data) => {
+		const requestId = send({ type: "input", sequence, data });
+		if (requestId) sequence += 1;
+		return requestId;
+	};
+}
 
 export function matchesChannelIdentity(
 	channel: Pick<SessionChannel, "sessionId" | "attemptId">,

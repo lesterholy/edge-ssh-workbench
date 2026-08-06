@@ -27,6 +27,7 @@ import type {
 	TailscaleImportResponse,
 	Theme,
 } from "@edgesh/contracts";
+import { BatchCommandDialog } from "./components/BatchCommandDialog";
 import { CredentialDialog } from "./components/CredentialDialog";
 import { FileWorkspace } from "./components/FileWorkspace";
 import { HistoryPanel } from "./components/HistoryPanel";
@@ -39,6 +40,10 @@ import { SessionTabs } from "./components/SessionTabs";
 import { SessionWorkspace } from "./components/SessionWorkspace";
 import { TailscaleImportDialog } from "./components/TailscaleImportDialog";
 import { api } from "./lib/api";
+import {
+	connectedBatchCommandTargets,
+	sendBatchCommand,
+} from "./lib/batch-command";
 import { translate } from "./lib/i18n";
 import {
 	enqueuePrompt,
@@ -129,6 +134,7 @@ export default function App() {
 	const [monitorOpen, setMonitorOpen] = useState(true);
 	const [securityDialogOpen, setSecurityDialogOpen] = useState(false);
 	const [tailscaleImportOpen, setTailscaleImportOpen] = useState(false);
+	const [batchCommandOpen, setBatchCommandOpen] = useState(false);
 	const [tailscaleRefreshSignal, setTailscaleRefreshSignal] = useState(0);
 	const [pageVisible, setPageVisible] = useState(!document.hidden);
 	const [draining, setDraining] = useState(false);
@@ -171,6 +177,10 @@ export default function App() {
 		? workbench.sessions[workbench.activeId]
 		: undefined;
 	const visibleIds = visibleSessionIds(workbench);
+	const batchCommandTargets = useMemo(
+		() => connectedBatchCommandTargets(workbench),
+		[workbench],
+	);
 	const firstPrompt = prompts[0];
 	const profileCounts = useMemo(
 		() => profileSessionCounts(workbench),
@@ -390,6 +400,7 @@ export default function App() {
 	) {
 		const current = workbenchRef.current.sessions[clientSessionId];
 		if (!current || current.attemptId !== attemptId) return;
+		setBatchCommandOpen(false);
 		dispatchWorkbench({ type: "pause", id: clientSessionId, attemptId });
 		setPrompts((queue) =>
 			enqueuePrompt(queue, {
@@ -571,6 +582,7 @@ export default function App() {
 	) {
 		const session = workbenchRef.current.sessions[clientSessionId];
 		if (!session || session.attemptId !== attemptId) return;
+		setBatchCommandOpen(false);
 		setPrompts((queue) =>
 			enqueuePrompt(queue, {
 				id: crypto.randomUUID(),
@@ -652,6 +664,7 @@ export default function App() {
 	async function logout() {
 		if (draining) return;
 		setDraining(true);
+		setBatchCommandOpen(false);
 		try {
 			await drainAllSessions();
 			await api.logout();
@@ -955,6 +968,8 @@ export default function App() {
 						onReconnect={reconnectSession}
 						onClose={closeSession}
 						onToggleSplit={() => dispatchWorkbench({ type: "toggle-split" })}
+						onBatchCommand={() => setBatchCommandOpen(true)}
+						connectedCount={batchCommandTargets.length}
 					/>
 					<div className={`session-workspaces ${workbench.layout}`}>
 						{workbench.order.map((id) => {
@@ -1109,6 +1124,16 @@ export default function App() {
 				<MonitorPanel metrics={activeSession?.metrics} t={t} />
 			</main>
 
+			{batchCommandOpen ? (
+				<BatchCommandDialog
+					targets={batchCommandTargets}
+					t={t}
+					onClose={() => setBatchCommandOpen(false)}
+					onSend={(targetIds, command) =>
+						sendBatchCommand(workbenchRef.current, targetIds, command)
+					}
+				/>
+			) : null}
 			{firstPrompt?.kind === "host-key" ? (
 				<div className="dialog-backdrop" role="presentation">
 					<div

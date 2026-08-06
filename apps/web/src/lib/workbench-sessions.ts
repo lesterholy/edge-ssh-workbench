@@ -440,6 +440,19 @@ export function profileSessionCounts(
 	return counts;
 }
 
+export function sessionDisplayName(
+	state: WorkbenchSessionsState,
+	id: string,
+): string | undefined {
+	const session = state.sessions[id];
+	if (!session) return undefined;
+	const matchingIds = state.order.filter(
+		(candidate) => state.sessions[candidate]?.profile.id === session.profile.id,
+	);
+	if (matchingIds.length <= 1) return session.profile.name;
+	return `${session.profile.name} #${matchingIds.indexOf(id) + 1}`;
+}
+
 export function isSessionRunning(session: WorkbenchSession): boolean {
 	return !["idle", "closed", "error"].includes(session.state);
 }

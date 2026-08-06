@@ -21,7 +21,10 @@ import {
 	type DecodedBinaryFrame,
 } from "../lib/binary-frame";
 import type { MessageKey } from "../lib/i18n";
-import type { SessionChannel } from "../lib/session-channel";
+import {
+	createTerminalInputSender,
+	type SessionChannel,
+} from "../lib/session-channel";
 
 const BINARY_HIGH_WATER_BYTES = 1024 * 1024;
 const BINARY_LOW_WATER_BYTES = 256 * 1024;
@@ -209,7 +212,6 @@ export function TerminalPane(props: Props) {
 		if (!terminal || !connectRequested) return;
 		let disposed = false;
 		let attemptSocket: WebSocket | undefined;
-		let inputSequence = 0;
 
 		terminal.clear();
 		terminal.writeln(
@@ -265,6 +267,7 @@ export function TerminalPane(props: Props) {
 					);
 					return requestId;
 				};
+				const sendInput = createTerminalInputSender(send);
 				const waitForBrowserDrain = async () => {
 					if (socket.bufferedAmount <= BINARY_HIGH_WATER_BYTES) return;
 					const deadline = Date.now() + BINARY_DRAIN_TIMEOUT_MS;
@@ -307,6 +310,7 @@ export function TerminalPane(props: Props) {
 					sessionId: ticket.sessionId,
 					attemptId,
 					send,
+					sendInput,
 					sendBinary,
 					subscribe: (listener) => {
 						messageListeners.add(listener);
@@ -425,8 +429,7 @@ export function TerminalPane(props: Props) {
 				});
 
 				const input = terminal.onData((data) => {
-					if (activeRef.current)
-						send({ type: "input", sequence: inputSequence++, data });
+					if (activeRef.current) channel.sendInput(data);
 				});
 				const resize = terminal.onResize(({ cols, rows }) => {
 					if (cols >= 2 && rows >= 1)
