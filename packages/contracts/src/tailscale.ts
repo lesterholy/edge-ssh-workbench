@@ -54,7 +54,8 @@ export type TailscaleConfigurationUpdateRequest = z.infer<
 export const TailscaleDeviceSchema = z
 	.object({
 		id: z.string().min(1).max(128),
-		name: z.string().min(1).max(100),
+		displayName: z.string().min(1).max(100),
+		hostname: z.string().min(1).max(255).nullable(),
 		host: HostSchema,
 		addresses: z.array(z.string().min(2).max(64)).max(16),
 		os: z.string().min(1).max(64).nullable(),

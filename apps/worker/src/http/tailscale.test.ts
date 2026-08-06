@@ -87,7 +87,8 @@ describe("Tailscale device import route", () => {
 			devices: [
 				{
 					id: "new",
-					name: "alpha",
+					displayName: "production-alpha",
+					hostname: "alpha",
 					host: "alpha.tail1234.ts.net",
 					addresses: [],
 					os: "linux",
@@ -97,7 +98,8 @@ describe("Tailscale device import route", () => {
 				},
 				{
 					id: "duplicate",
-					name: "beta",
+					displayName: "production-beta",
+					hostname: "beta",
 					host: "beta.tail1234.ts.net",
 					addresses: [],
 					os: "linux",
@@ -107,7 +109,8 @@ describe("Tailscale device import route", () => {
 				},
 				{
 					id: "unauthorized",
-					name: "gamma",
+					displayName: "staging-gamma",
+					hostname: "gamma",
 					host: "gamma.tail1234.ts.net",
 					addresses: [],
 					os: "linux",
@@ -126,7 +129,7 @@ describe("Tailscale device import route", () => {
 		]);
 		mocks.createProfile.mockResolvedValue({
 			id: "11111111-1111-4111-8111-111111111111",
-			name: "alpha",
+			name: "production-alpha",
 			host: "alpha.tail1234.ts.net",
 			port: 22,
 			username: "root",
@@ -233,12 +236,20 @@ describe("Tailscale device import route", () => {
 		expect(body.created).toEqual([
 			expect.objectContaining({
 				id: "11111111-1111-4111-8111-111111111111",
-				name: "alpha",
+				name: "production-alpha",
 			}),
 		]);
 		expect(body.skipped).toEqual([
-			{ deviceId: "duplicate", name: "beta", reason: "duplicate" },
-			{ deviceId: "unauthorized", name: "gamma", reason: "unauthorized" },
+			{
+				deviceId: "duplicate",
+				name: "production-beta",
+				reason: "duplicate",
+			},
+			{
+				deviceId: "unauthorized",
+				name: "staging-gamma",
+				reason: "unauthorized",
+			},
 			{ deviceId: "gone", name: "gone", reason: "missing_magic_dns" },
 		]);
 		expect(mocks.fetchTailscaleDevices).toHaveBeenCalledOnce();
@@ -250,6 +261,7 @@ describe("Tailscale device import route", () => {
 		expect(mocks.createProfile).toHaveBeenCalledWith(
 			"usr_admin",
 			expect.objectContaining({
+				name: "production-alpha",
 				host: "alpha.tail1234.ts.net",
 				port: 22,
 				username: "root",
@@ -262,7 +274,7 @@ describe("Tailscale device import route", () => {
 		mocks.listProfileTargets.mockResolvedValue([]);
 		mocks.createProfile.mockResolvedValue({
 			id: "11111111-1111-4111-8111-111111111111",
-			name: "alpha",
+			name: "production-alpha",
 			host: "alpha.tail1234.ts.net",
 			port: 7022,
 			username: "root",

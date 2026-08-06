@@ -85,14 +85,16 @@ export function TailscaleImportDialog({ t, onClose, onImported }: Props) {
 		return [...devices].sort((a, b) => {
 			if (a.authorized !== b.authorized) return a.authorized ? -1 : 1;
 			if (a.online !== b.online) return a.online ? -1 : 1;
-			return a.name.localeCompare(b.name);
+			return a.displayName.localeCompare(b.displayName);
 		});
 	}, [devices]);
 	const filteredDevices = useMemo(() => {
 		if (!normalizedSearch) return sortedDevices;
 		return sortedDevices.filter(
 			(device) =>
-				device.name.toLowerCase().includes(normalizedSearch) ||
+				device.displayName.toLowerCase().includes(normalizedSearch) ||
+				(device.hostname &&
+					device.hostname.toLowerCase().includes(normalizedSearch)) ||
 				device.host.toLowerCase().includes(normalizedSearch) ||
 				(device.os && device.os.toLowerCase().includes(normalizedSearch)),
 		);
@@ -566,9 +568,15 @@ export function TailscaleImportDialog({ t, onClose, onImported }: Props) {
 											<span className="sr-only">
 												{device.online ? t("deviceOnline") : t("deviceOffline")}
 											</span>
-											<span className="tailscale-device-meta">
-												<span>{device.name}</span>
+											<span
+												className="tailscale-device-meta"
+												title={`${t("tailscaleDisplayName")}: ${device.displayName}\n${t("tailscaleHostname")}: ${device.hostname ?? "-"}\n${device.host}`}
+											>
+												<span>
+													{t("tailscaleDisplayName")}: {device.displayName}
+												</span>
 												<small>
+													{t("tailscaleHostname")}: {device.hostname ?? "-"} ·{" "}
 													{device.host} {device.os ? `· ${device.os}` : null}
 												</small>
 											</span>

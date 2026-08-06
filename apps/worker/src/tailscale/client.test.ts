@@ -5,14 +5,14 @@ import { fetchTailscaleDevices, parseTailscaleDevices } from "./client";
 const now = Date.parse("2026-08-04T04:00:00.000Z");
 
 describe("Tailscale device discovery", () => {
-	it("keeps full MagicDNS names and derives a bounded online status", () => {
+	it("keeps the configured Tailscale name separate from the OS hostname", () => {
 		const devices = parseTailscaleDevices(
 			{
 				devices: [
 					{
 						id: "device-1",
-						hostname: "alpha",
-						name: "alpha.tail3870ff.ts.net.",
+						hostname: "alpha-os",
+						name: "production-db.tail3870ff.ts.net.",
 						addresses: ["100.64.0.1", "fd7a:115c:a1e0::1"],
 						os: "linux",
 						authorized: true,
@@ -32,8 +32,9 @@ describe("Tailscale device discovery", () => {
 		expect(devices).toEqual([
 			{
 				id: "device-1",
-				name: "alpha",
-				host: "alpha.tail3870ff.ts.net",
+				displayName: "production-db",
+				hostname: "alpha-os",
+				host: "production-db.tail3870ff.ts.net",
 				addresses: ["100.64.0.1", "fd7a:115c:a1e0::1"],
 				os: "linux",
 				authorized: true,
@@ -84,7 +85,11 @@ describe("Tailscale device discovery", () => {
 		);
 
 		expect(devices).toHaveLength(1);
-		expect(devices[0]?.host).toBe("alpha.example-tailnet.ts.net");
+		expect(devices[0]).toMatchObject({
+			displayName: "alpha",
+			hostname: "alpha",
+			host: "alpha.example-tailnet.ts.net",
+		});
 	});
 
 	it("prefers an explicit offline state over a recent last-seen timestamp", () => {

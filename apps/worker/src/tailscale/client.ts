@@ -107,9 +107,7 @@ function magicDnsHost(value: unknown): string | null {
 	}
 }
 
-function deviceName(raw: Record<string, unknown>, host: string): string {
-	const hostname = text(raw.hostname, 100);
-	if (hostname) return hostname;
+function deviceDisplayName(host: string): string {
 	return host.split(".")[0]?.slice(0, 100) || host.slice(0, 100);
 }
 
@@ -164,7 +162,8 @@ export function parseTailscaleDevices(
 					: recentlySeen;
 		devices.push({
 			id,
-			name: deviceName(raw, host),
+			displayName: deviceDisplayName(host),
+			hostname: text(raw.hostname, 255),
 			host,
 			addresses: addresses(raw.addresses),
 			os: text(raw.os, 64),
@@ -178,7 +177,7 @@ export function parseTailscaleDevices(
 	return devices.sort(
 		(left, right) =>
 			Number(right.online) - Number(left.online) ||
-			left.name.localeCompare(right.name),
+			left.displayName.localeCompare(right.displayName),
 	);
 }
 

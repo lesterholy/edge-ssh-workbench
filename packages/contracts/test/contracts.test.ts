@@ -320,8 +320,9 @@ describe("public contracts", () => {
 				devices: [
 					{
 						id: "device-1",
-						name: "alpha",
-						host: "alpha.tail1234.ts.net",
+						displayName: "production-alpha",
+						hostname: "alpha",
+						host: "production-alpha.tail1234.ts.net",
 						addresses: ["100.64.0.1"],
 						os: "linux",
 						authorized: true,

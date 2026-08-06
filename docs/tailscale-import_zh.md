@@ -36,6 +36,7 @@ npx wrangler secret put TAILSCALE_API_TOKEN --config .wrangler.production.toml
 
 打开 **服务器 -> 从 Tailscale 导入**，刷新设备列表，最多选择 50 台已授权设备，然后设置统一的 SSH 用户名、端口和认证方式。
 
+- 设备列表会分别显示管理员设置的 Tailscale 机器名称和操作系统主机名。导入后的 Profile 使用 Tailscale 名称作为显示名称，并保留完整 MagicDNS 名称作为连接目标。
 - `tailscale_ssh` 固定使用 22 端口，并且不保存 SSH 凭据。
 - 密码和私钥导入使用“连接时询问”，不会把同一份 Secret 批量复制到所有 Profile。
 - 已存在相同标准化 host、port 和 username 的 Profile 会被跳过。

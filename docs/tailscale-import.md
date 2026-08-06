@@ -36,6 +36,7 @@ npx wrangler secret put TAILSCALE_API_TOKEN --config .wrangler.production.toml
 
 Open **Servers -> Import from Tailscale**, refresh the inventory, select up to 50 authorized devices, and choose the common SSH username, port, and authentication mode.
 
+- The inventory shows the configured Tailscale machine name separately from the operating-system hostname. Imported profiles use the Tailscale name as their display name and retain the full MagicDNS name as the connection target.
 - `tailscale_ssh` always uses port 22 and stores no SSH credential.
 - Password and private-key imports use prompt-only credentials; no shared secret is copied across the imported profiles.
 - Existing profiles with the same normalized host, port, and username are skipped.

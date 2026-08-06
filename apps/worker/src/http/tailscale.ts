@@ -140,19 +140,23 @@ async function importDevices(
 		if (!device.authorized) {
 			result.skipped.push({
 				deviceId,
-				name: device.name,
+				name: device.displayName,
 				reason: "unauthorized",
 			});
 			continue;
 		}
 		const targetKey = `${device.host}\u0000${input.port}\u0000${username}`;
 		if (existingTargets.has(targetKey)) {
-			result.skipped.push({ deviceId, name: device.name, reason: "duplicate" });
+			result.skipped.push({
+				deviceId,
+				name: device.displayName,
+				reason: "duplicate",
+			});
 			continue;
 		}
 
 		const profile = await repository.createFromRequest(ownerId, {
-			name: device.name,
+			name: device.displayName,
 			host: device.host,
 			port: input.port,
 			username,
